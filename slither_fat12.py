@@ -66,9 +66,14 @@ class FAT12:
                 else:
                     self.disk_formats[i][x] = int(config[i][x])
 
-    def mount(self):
-        if os.path.exists(self.fp):
-            self.f = open(self.fp, "rb+")
+    def mount(self, file=""):
+        if file:
+            self.fp = file
+        else:
+            file = self.fp
+
+        if os.path.exists(file):
+            self.f = open(file, "rb+")
             self.f.seek(3)
 
             # BPB
@@ -94,15 +99,30 @@ class FAT12:
             self.attr["Volume_Label"] = self.f.read(11).decode(encoding="ascii").rstrip()
             self.attr["Identifier"] = self.f.read(8).decode(encoding="ascii").rstrip()
 
-    def getDirSector(self):
-        return (self.attr["Dir_Entries"] *32) // self.attr["Bytes_Per_Sector"]
+            return True
 
-    def getFirstDataSector(self):
-        return self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"] + self.getDirSector()
+        return False
 
     def unmount(self):
         if self.f:
             self.f.close()
+            self.f = None
+            return True
+
+        return False
+
+    # Check to see if we're mounted.
+    def isMounted(self):
+        if self.f:
+            return True
+        else:
+            return False
+
+    def getDirSector(self):
+        return (self.attr["Dir_Entries"] *32) // self.attr["Bytes_Per_Sector"]
+
+    def getFirstDataSector(self):
+        return self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"] + self.getDirSector()    
 
     def format(self, style):
             if not style in self.disk_formats:
@@ -404,3 +424,7 @@ class FAT12:
                 return True
 
         return False
+
+if __name__ == "__main__":
+    print("Not a standalone script!")
+    exit(-1)
