@@ -28,6 +28,8 @@ Sucessfully unmounted the disk.
 ()> exit
 ```
 
+You can pass a list of commands before the script runs by using a semicolon (;) to seperate them. Ex: `py -3 slither_cmd.py mount myfloppy.flp;dir;add CALC.BIN;dir;unmount`
+
 ## List of Commands
 * `mount` - Mounts a virtual floppy disk in the current path directory.
 * `unmount` - Unmounts a disk, if a disk is mounted.
