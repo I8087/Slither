@@ -242,7 +242,7 @@ class FAT12:
 
                     return contents
 
-        return bytes()
+        return False
 
     # Rename a file.
     def renameFile(self, oldname, newname):
