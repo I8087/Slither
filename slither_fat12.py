@@ -189,10 +189,15 @@ class FAT12:
                     if fn[0x1C+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
                         name += fn[0x1C+(i*2)].to_bytes(2, "little")
             elif name:
-                l.append(name.decode(encoding="utf-16"))
+                l.append((name.decode(encoding="utf-16"),))
                 name = b""
             elif fn[11] != 0x0F:
-                l.append(fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip())
+                time = int.from_bytes(fn[14:16], "little")
+                date = int.from_bytes(fn[16:18], "little")
+                l.append((fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip(),
+                          int.from_bytes(fn[28:32], "little"),
+                          "{:0>2}:{:0>2}:{:0>2}".format((time >> 11) & 0x1F, (time >> 5) & 0x3F, (time & 0x1F) * 2),
+                          "{:0>2}/{:0>2}/{}".format((date >> 5) & 0xF, date & 0x1F, ((date >> 9) & 0x7F) + 1980)))
 
         return tuple(i for i in sorted(l))
 

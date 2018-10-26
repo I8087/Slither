@@ -79,7 +79,7 @@ class Slither_CMD(Cmd):
         if self.disk.isMounted():
             print("Directory of drive:\n")
             for i in self.disk.getDir():
-                print(i)
+                print("{:<14}   {:>5} BYTES   {}   {}".format(i[0], i[1], i[2], i[3]))
         else:
             print("No disk mounted!")
 
