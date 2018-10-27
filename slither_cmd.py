@@ -1,6 +1,6 @@
 import sys
 from cmd import Cmd
-from slither_fat12 import FAT12
+from slither_fat12 import *
 
 class Slither_CMD(Cmd):
     intro = "Slither CMD. Type help or ? for a list of commands.\n"
@@ -121,10 +121,11 @@ class Slither_CMD(Cmd):
             self.arg_count()
             return False
 
-        if self.disk.isMounted():
+        try:
             self.disk.renameFile(arg[0], arg[1])
-        else:
-            print("No disk mounted!")
+
+        except SlitherIOError as e:
+            print(e.msg)
 
     def do_get(self, arg):
         "get <file> optional <newfile>"
@@ -133,24 +134,23 @@ class Slither_CMD(Cmd):
             self.arg_count()
             return False
 
-        if self.disk.isMounted():
+        try:
+            c = self.disk.getFile(arg[0])
+
             if len(arg) == 2:
                 f = open(arg[1], "wb")
             else:
                 f = open(arg[0], "wb")
 
-            c = self.disk.getFile(arg[0])
-
-            if type(c) is bytes:
-                f.write(c)
-                print("Successfully got \"%s\"!" % arg[0])
-            else:
-                print("Failed to get \"%s\"!" % arg[0])
-
+            f.write(c)
             f.close()
+            print("Successfully got the file!")
 
-        else:
-            print("No disk mounted!")
+        except IOError:
+            print("Unable to create file!")
+
+        except SlitherIOError as e:
+            print(e.msg)
 
     def do_exit(self, arg):
         "Exits out of the prompt."

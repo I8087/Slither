@@ -16,8 +16,18 @@ import configparser
 
 KiB = 1024
 MiB = KiB * 1024
-Sector = 512
 
+# Handles all of the IO exceptions in Slither.
+class SlitherIOError(Exception):
+
+    def __init__(self, value, msg):
+        self.value = value
+        self.msg = msg
+
+    def __str__(self):
+        return repr(self.msg)
+
+# The main library of FAT12 functions.
 class FAT12:
 
     def __init__(self, f=""):
@@ -52,6 +62,38 @@ class FAT12:
             "Identifier": ""}
 
         self.get_disk_formats()
+
+    # Seek the Root Directory.
+    def _seek_root(self):
+        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
+
+    # Seeks a file. Returns False if it doesn't exist, otherwise it's True.
+    def _seek_file(self, file):
+        # Seek the start of the root directory.
+        self._seek_root()
+
+        # Start searching for the file.
+        for i in range(self.attr["Dir_Entries"]):
+
+            # Read the entry.
+            fn = self.f.read(32)
+
+            # Check to see if this is an entry.
+            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
+
+                if file == fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip():
+                    self.f.seek(-32, 1)
+                    return True
+
+        return False
+
+    # Converts a filename into a FAT short file name string.
+    def _to_sfn(self, file):
+        return file.split(".")[0][:8].ljust(8).upper() + file.split(".")[1][:3].ljust(3).upper()
+
+    # Converts a filename into a FAT short file name byte array.
+    def _to_sfn_b(self, file):
+        return bytes(self._to_sfn(file), "ascii")
 
     # Get a list of disk formats from formats.ini
     def get_disk_formats(self):
@@ -167,17 +209,30 @@ class FAT12:
             self.f.close()
 
 
-    # Gets a list of Files on the Floppy.
+    # Gets a list of files in the root directory.
     def getDir(self, vFAT=False):
+
         l = []
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
         name = b""
+
+        # Seek the start of the root directory.
+        self._seek_root()
+
+        # Start searching through the root directory.        
         for i in range(self.attr["Dir_Entries"]):
+
+            # Read the entry.
             fn = self.f.read(32)
+
+            # If this entry is empty, we're done.
             if not fn[0]:
                 break
+
+            # If this entry is free, skip to the next.
             elif fn[0] == 0xE5:
                 pass
+
+            # Check to see if this is a vFAT entry.
             elif vFAT and fn[11] == 0x0F:
                 for i in range(5):
                     if fn[1+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
@@ -191,6 +246,8 @@ class FAT12:
             elif name:
                 l.append((name.decode(encoding="utf-16"),))
                 name = b""
+
+            # Otherwise this is a 8.3 entry.
             elif fn[11] != 0x0F:
                 time = int.from_bytes(fn[14:16], "little")
                 date = int.from_bytes(fn[16:18], "little")
@@ -201,77 +258,79 @@ class FAT12:
 
         return tuple(i for i in sorted(l))
 
+    # Get the contents of a file off the disk.
     def getFile(self, file, vFAT=False):
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
-        for i in range(self.attr["Dir_Entries"]):
-            fn = self.f.read(32)
 
-            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
-                file2 = fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip()
-                if file == file2:
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
 
-                    # Get cluster and file size.
-                    cluster = int.from_bytes(fn[26:28], "little")
-                    file_size = int.from_bytes(fn[28:32], "little")
-                    contents = bytes()
+        # Seek the file entry.
+        if not self._seek_file(file):
+            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
 
-                    while cluster and (cluster < 0xFF0) and (file_size > 1):
+        # Read the file entry.
+        fn = self.f.read(32)
 
-                        # Load the sector.
-                        self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+        # Get cluster and file size.
+        cluster = int.from_bytes(fn[26:28], "little")
+        file_size = int.from_bytes(fn[28:32], "little")
 
-                        # Check to see if this is the last sector.
-                        if file_size > (self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]):
-                            contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
-                        else:
-                            contents += self.f.read(file_size)
+        contents = bytes()
 
-                        # Subtract a sector from the file size counter.
-                        file_size -= self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]
+        while cluster and (cluster < 0xFF0) and (file_size > 1):
 
-                        # Calculate the location of the next cluster.
-                        fat_offset = cluster + (cluster // 2)
+            # Load the sector.
+            self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
 
-                        # Check if the current cluster is even or odd.
-                        even = cluster & 1
+            # Check to see if this is the last sector.
+            if file_size > (self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]):
+                contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+            else:
+                contents += self.f.read(file_size)
 
-                        # Load the next cluster.
-                        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                        cluster = int.from_bytes(self.f.read(2), "little")
+            # Subtract a sector from the file size counter.
+            file_size -= self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]
 
-                        # Adjust the 12-bit cluster appropriately.
-                        if even:
-                            cluster >>= 4
-                        else:
-                            cluster &= 0x0FFF
+            # Calculate the location of the next cluster.
+            fat_offset = int(cluster * 1.5)
 
-                    return contents
+            # Check if the current cluster is even or odd.
+            even = cluster & 1
 
-        return False
+            # Load the next cluster.
+            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+            cluster = int.from_bytes(self.f.read(2), "little")
+
+            # Adjust the 12-bit cluster appropriately.
+            if even:
+                cluster >>= 4
+            else:
+                cluster &= 0xFFF
+
+        return contents
 
     # Rename a file.
     def renameFile(self, oldname, newname):
-        oldname = oldname.split(".")[0][:8].ljust(8).upper() + oldname.split(".")[1][:3].ljust(3).upper()
-        newname = newname.split(".")[0][:8].ljust(8).upper() + newname.split(".")[1][:3].ljust(3).upper()
 
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
-        # See if the new file name exists.
-        for i in range(self.attr["Dir_Entries"]):
-            fn = self.f.read(32)
-            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
-                if fn[:11].decode(encoding="ascii") == newname:
-                    return False
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
 
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
-        for i in range(self.attr["Dir_Entries"]):
-            fn = self.f.read(32)
-            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
-                if  fn[:11].decode(encoding="ascii") == oldname:
-                    self.f.seek(-32, 1)
-                    self.f.write(bytes(newname, "ascii"))
-                    return True
+        # See if the new file exists already.
+        if self._seek_file(newname):
+            raise SlitherIOError("FileExists", "That file already exists!")
 
-        return False
+        # Seek the file entry.
+        if not self._seek_file(oldname):
+            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
+
+        # Write the new file name.
+        self.f.write(self._to_sfn_b(newname))
+
+        print("Successfully renamed the file!")
+
+        return True
 
     # Deletes a file if it exists.
     def deleteFile(self, file):
