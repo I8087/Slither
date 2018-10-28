@@ -28,11 +28,16 @@ class Slither_CMD(Cmd):
     # Return a tuple instead of a string.
     def parseline(self, line):
         cmd, arg, line = Cmd.parseline(self, line)
+
+        if cmd:
+            cmd = cmd.lower()
+
         if cmd not in ("help", "?"):
             if arg:
                 arg = tuple(arg.split())
             else:
                 arg = tuple()
+
         return cmd, arg, line
 
     #def do_help(self, arg):
@@ -41,6 +46,7 @@ class Slither_CMD(Cmd):
     # ----- Slither Commands -----
     def do_mount(self, arg):
         "mount <path>"
+
         if len(arg) != 1:
             self.arg_count()
             return False
@@ -56,6 +62,7 @@ class Slither_CMD(Cmd):
 
     def do_unmount(self, arg):
         "unmount <>"
+
         if len(arg):
             self.arg_count()
             return False
@@ -76,12 +83,13 @@ class Slither_CMD(Cmd):
             self.arg_count()
             return False
 
-        if self.disk.isMounted():
+        try:
             print("Directory of drive:\n")
             for i in self.disk.getDir():
                 print("{:<14}   {:>5} BYTES   {}   {}".format(i[0], i[1], i[2], i[3]))
-        else:
-            print("No disk mounted!")
+
+        except SlitherIOError as e:
+            print(e.msg)
 
     def do_add(self, arg):
         "add <file>"
@@ -90,17 +98,21 @@ class Slither_CMD(Cmd):
             self.arg_count()
             return False
 
-        if self.disk.isMounted():
-            try:
-                f = open(arg[0], "rb")
-                cnt = f.read()
-                self.disk.saveFile(arg[0], f.read())
-                f.close()
-            except IOError:
-                print("Unable to open the file!")
-                return False
-        else:
-            print("No disk mounted!")
+        try:
+            # Read the contents of the file.
+            f = open(arg[0], "rb")
+            cnt = f.read()
+            f.close()
+
+            self.disk.addFile(arg[0], cnt)
+
+            print("Successfully added the file!")
+
+        except IOError:
+            print("Unable to read the file!")
+
+        except SlitherIOError as e:
+            print(e.msg)
 
     def do_del(self, arg):
         "del <file>"
@@ -109,10 +121,13 @@ class Slither_CMD(Cmd):
             self.arg_count()
             return False
 
-        if self.disk.isMounted():
+        try:
             self.disk.deleteFile(arg[0])
-        else:
-            print("No disk mounted!")
+            print("Successfully deleted the file!")
+
+        except SlitherIOError as e:
+            print(e.msg)
+
 
     def do_ren(self, arg):
         "ren <oldfile> <newfile>"
@@ -123,6 +138,7 @@ class Slither_CMD(Cmd):
 
         try:
             self.disk.renameFile(arg[0], arg[1])
+            print("Succesfully renamed the file!")
 
         except SlitherIOError as e:
             print(e.msg)
@@ -136,6 +152,7 @@ class Slither_CMD(Cmd):
 
         try:
             c = self.disk.getFile(arg[0])
+            print(len(c))
 
             if len(arg) == 2:
                 f = open(arg[1], "wb")
@@ -158,6 +175,8 @@ class Slither_CMD(Cmd):
         # Make sure to properly unmount.
         if self.disk.isMounted():
             self.do_unmount(arg)
+
+        print("Goodbye!")
         return True
 
 if __name__ == "__main__":

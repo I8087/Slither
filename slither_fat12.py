@@ -3,6 +3,7 @@
 
 import os
 import configparser
+import datetime
 
     #"IBM PC 3.5IN 320KB"
     #"IBM PC 3.5IN 360KB"
@@ -87,6 +88,24 @@ class FAT12:
 
         return False
 
+    # Seeks a free entry.
+    def _seek_free(self, file):
+        # Seek the start of the root directory.
+        self._seek_root()
+
+        # Start searching for the file.
+        for i in range(self.attr["Dir_Entries"]):
+
+            # Read the entry.
+            fn = self.f.read(32)
+
+            # Check to see if this is a free entry.
+            if fn[0] in (0x00, 0xE5):
+                    self.f.seek(-32, 1)
+                    return True
+
+        return False
+
     # Converts a filename into a FAT short file name string.
     def _to_sfn(self, file):
         return file.split(".")[0][:8].ljust(8).upper() + file.split(".")[1][:3].ljust(3).upper()
@@ -94,6 +113,14 @@ class FAT12:
     # Converts a filename into a FAT short file name byte array.
     def _to_sfn_b(self, file):
         return bytes(self._to_sfn(file), "ascii")
+
+    # Returns the time in FAT format.
+    def _get_time(self):
+        return int((datetime.datetime.now().hour << 11) + (datetime.datetime.now().minute << 5) + (datetime.datetime.now().second // 2)).to_bytes(2, "little")
+
+    # Returns the date in FAT format.
+    def _get_date(self):
+        return int(((datetime.datetime.now().year - 1980) << 9) + (datetime.datetime.now().month << 5) + datetime.datetime.now().day).to_bytes(2, "little")
 
     # Get a list of disk formats from formats.ini
     def get_disk_formats(self):
@@ -164,7 +191,7 @@ class FAT12:
         return (self.attr["Dir_Entries"] *32) // self.attr["Bytes_Per_Sector"]
 
     def getFirstDataSector(self):
-        return self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"] + self.getDirSector()    
+        return self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"] + self.getDirSector()
 
     def format(self, style):
             if not style in self.disk_formats:
@@ -212,13 +239,17 @@ class FAT12:
     # Gets a list of files in the root directory.
     def getDir(self, vFAT=False):
 
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
+
         l = []
         name = b""
 
         # Seek the start of the root directory.
         self._seek_root()
 
-        # Start searching through the root directory.        
+        # Start searching through the root directory.
         for i in range(self.attr["Dir_Entries"]):
 
             # Read the entry.
@@ -249,8 +280,8 @@ class FAT12:
 
             # Otherwise this is a 8.3 entry.
             elif fn[11] != 0x0F:
-                time = int.from_bytes(fn[14:16], "little")
-                date = int.from_bytes(fn[16:18], "little")
+                time = int.from_bytes(fn[22:24], "little")
+                date = int.from_bytes(fn[24:26], "little")
                 l.append((fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip(),
                           int.from_bytes(fn[28:32], "little"),
                           "{:0>2}:{:0>2}:{:0>2}".format((time >> 11) & 0x1F, (time >> 5) & 0x3F, (time & 0x1F) * 2),
@@ -275,7 +306,7 @@ class FAT12:
         # Get cluster and file size.
         cluster = int.from_bytes(fn[26:28], "little")
         file_size = int.from_bytes(fn[28:32], "little")
-
+        
         contents = bytes()
 
         while cluster and (cluster < 0xFF0) and (file_size > 1):
@@ -334,160 +365,161 @@ class FAT12:
 
     # Deletes a file if it exists.
     def deleteFile(self, file):
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
-        for i in range(self.attr["Dir_Entries"]):
-            fn = self.f.read(32)
-            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
-                file2 = fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip()
-                if file == file2:
 
-                    # Save the first cluster.
-                    cluster = int.from_bytes(fn[26:28], "little")
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
 
-                    self.f.seek(-32, 1)
+        # Seek the file entry.
+        if not self._seek_file(file):
+            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
 
-                    # Mark the entry as deleted and clear it out.
-                    self.f.write(b'\xE5' + b'\x00'*31)
+        # Read the file entry.
+        fn = self.f.read(32)
 
-                    while cluster and (cluster < 0xFF0):
+        # Save the start of the cluster chain. We need to clear that out too!
+        cluster = int.from_bytes(fn[26:28], "little")
 
-                        # Calculate the location of the next cluster.
-                        fat_offset = cluster + (cluster // 2)
+        # Mark the entry as deleted and clear it out.
+        self.f.seek(-32, 1)
+        self.f.write(b'\xE5' + b'\x00'*31)
 
-                        # Check if the current cluster is even or odd.
-                        even = cluster & 1
+        while cluster and (cluster < 0xFF0):
 
-                        # Load the next cluster.
-                        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                        cluster = int.from_bytes(self.f.read(2), "little")
-                        self.f.seek(-2, 1)
+            # Calculate the location of the next cluster.
+            fat_offset = int(cluster * 1.5)
 
-                        # Adjust the 12-bit cluster appropriately.
-                        if even:
-                            self.f.write((cluster & 0x000F).to_bytes(2, "little"))
-                            cluster >>= 4
-                        else:
-                            self.f.write((cluster & 0xF000).to_bytes(2, "little"))
-                            cluster &= 0x0FFF
+            # Check if the current cluster is even or odd.
+            even = cluster & 1
 
-                    return
+            # Load the next cluster.
+            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+            cluster = int.from_bytes(self.f.read(2), "little")
+            self.f.seek(-2, 1)
 
-    def saveFile(self, file, contents):
-        # Remove the old file. We're overwriting it.
-        self.deleteFile(file)
+            # Adjust the 12-bit cluster appropriately.
+            if even:
+                self.f.write((cluster & 0xF).to_bytes(2, "little"))
+                cluster >>= 4
+            else:
+                self.f.write((cluster & 0xF000).to_bytes(2, "little"))
+                cluster &= 0xFFF
 
-        self.f.seek((self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"])*self.attr["Bytes_Per_Sector"])
+        return True
 
-        # Find free entry space.
-        for i in range(self.attr["Dir_Entries"]):
-            fn = self.f.read(32)
+    def addFile(self, file, contents):
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
 
-            # Do if dir entry is free.
-            if fn[0] ==0xE5 and fn[11] != 0x0F:
-                file_size = len(contents)
+        # If the file exists, delete it because we're overwriting it.
+        if self._seek_file(file):
+            self.deleteFile(file)
 
-                self.f.seek(-32, 1)
+        # Seek the file entry.
+        if not self._seek_free(file):
+            raise SlitherIOError("NoFreeEntries", "There are no more free entries in the root directory!")
 
-                ent_loc = self.f.tell()
+        file_size = len(contents)
 
-                # Write the file name.
-                self.f.write(bytes(file.split(".")[0][:8].ljust(8).upper(), "ascii"))
-                self.f.write(bytes(file.split(".")[1][:3].ljust(3).upper(), "ascii"))
-                self.f.write(b'\x00') # Attributes.
-                self.f.write(b'\x00') # Windows NT Flag
-                self.f.write(b'\x00') # Creation time in tenths of a second.
-                self.f.write(b'\x00\x00') # Time
-                self.f.write(b'\x00\x00') # Date
-                self.f.write(b'\x00\x00') # Last Access Date.
-                self.f.write(b'\x00\x00') # Higher 16-bit cluster.
-                self.f.write(b'\x00\x00') # Last modified time
-                self.f.write(b'\x00\x00') # Last modified date.
-                self.f.write(b'\x00\x00') # Lower 16-bit cluster.
-                self.f.write(file_size.to_bytes(4, "little")) # Size of file in bytes.
+        ent_loc = self.f.tell()
 
-                # Find the number of clusters needed.
-                sectors = file_size // self.attr["Bytes_Per_Sector"]
+        # Write the file name.
+        self.f.write(bytes(file.split(".")[0][:8].ljust(8).upper(), "ascii"))
+        self.f.write(bytes(file.split(".")[1][:3].ljust(3).upper(), "ascii"))
+        self.f.write(b'\x00') # Attributes.
+        self.f.write(b'\x00') # Windows NT Flag
+        self.f.write(b'\x00') # Creation time in tenths of a second.
+        self.f.write(self._get_time()) #Creation time
+        self.f.write(self._get_date()) # Creation date
+        self.f.write(self._get_date()) # Last Access Date.
+        self.f.write(b'\x00\x00') # Higher 16-bit cluster.
+        self.f.write(self._get_time()) # Last modified time
+        self.f.write(self._get_date()) # Last modified date.
+        self.f.write(b'\x00\x00') # Lower 16-bit cluster.
+        self.f.write(file_size.to_bytes(4, "little")) # Size of file in bytes.
 
-                # Fit the last data into the size of a sector, if needed.
-                if file_size % self.attr["Bytes_Per_Sector"]:
-                    contents += b'\x00' * (self.attr["Bytes_Per_Sector"] - (file_size % self.attr["Bytes_Per_Sector"]))
-                    sectors += 1
+        # Find the number of clusters needed.
+        sectors = file_size // self.attr["Bytes_Per_Sector"]
 
-                cluster = 0
-                cluster_chain = []
+        # Fit the last data into the size of a sector, if needed.
+        if file_size % self.attr["Bytes_Per_Sector"]:
+            contents += b'\x00' * (self.attr["Bytes_Per_Sector"] - (file_size % self.attr["Bytes_Per_Sector"]))
+            sectors += 1
 
-                while sectors:
+        cluster = 0
+        cluster_chain = []
 
-                    # Calculate the location of the next cluster.
-                    fat_offset = cluster + (cluster // 2)
+        while sectors:
 
-                    # Check if the current cluster is even or odd.
-                    even = cluster & 1
+            # Calculate the location of the next cluster.
+            fat_offset = cluster + (cluster // 2)
 
-                    # Check the next cluster.
-                    self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                    _cluster = int.from_bytes(self.f.read(2), "little")
+            # Check if the current cluster is even or odd.
+            even = cluster & 1
 
-                    # Adjust the 12-bit cluster appropriately.
-                    if even:
-                        _cluster >>= 4
-                    else:
-                        _cluster &= 0x0FFF
+            # Check the next cluster.
+            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+            _cluster = int.from_bytes(self.f.read(2), "little")
 
-                    if not _cluster:
-                        cluster_chain.append(cluster)
-                        sectors -= 1
+            # Adjust the 12-bit cluster appropriately.
+            if even:
+                _cluster >>= 4
+            else:
+                _cluster &= 0x0FFF
 
-                    cluster += 1
+            if not _cluster:
+                cluster_chain.append(cluster)
+                sectors -= 1
 
-                cluster_chain.append(0x0FFF)
-                last_cluster = 0
+            cluster += 1
 
-                for cluster in cluster_chain:
+        cluster_chain.append(0x0FFF)
+        last_cluster = 0
 
-                    if cluster != 0xFFF:
+        for cluster in cluster_chain:
 
-                        # Load the sector.
-                        self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+            if cluster != 0xFFF:
 
-                        # Write to the sector.
-                        self.f.write(contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
-                        contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
+                # Load the sector.
+                self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+                # Write to the sector.
+                self.f.write(contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
+                contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
 
 
-                    # Save the cluster in the chain.
-                    if last_cluster:
-                    
-                        # Calculate the location of the next cluster.
-                        fat_offset = last_cluster + (cluster // 2)
+            # Save the cluster in the chain.
+            if last_cluster:
 
-                        # Check if the current cluster is even or odd.
-                        even = last_cluster & 1
+                # Calculate the location of the next cluster.
+                fat_offset = last_cluster + (cluster // 2)
 
-                        # Load the next cluster.
-                        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                        last_cluster = int.from_bytes(self.f.read(2), "little")
+                # Check if the current cluster is even or odd.
+                even = last_cluster & 1
 
-                        # Adjust the 12-bit cluster appropriately.
-                        if even:
-                            last_cluster = cluster + (last_cluster & 0xF000)
-                        else:
-                            cluster <<= 4
-                            last_cluster = cluster + (last_cluster & 0x000F)
+                # Load the next cluster.
+                self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+                last_cluster = int.from_bytes(self.f.read(2), "little")
 
-                        self.f.seek(-2, 1)
-                        self.f.write(last_cluster.to_bytes(2, "little"))
+                # Adjust the 12-bit cluster appropriately.
+                if even:
+                    last_cluster = cluster + (last_cluster & 0xF000)
+                else:
+                    cluster <<= 4
+                    last_cluster = cluster + (last_cluster & 0x000F)
 
-                        last_cluster = cluster
+                self.f.seek(-2, 1)
+                self.f.write(last_cluster.to_bytes(2, "little"))
 
-                    else:
-                        self.f.seek(ent_loc+26)
-                        self.f.write(cluster.to_bytes(2, "little"))
-                        last_cluster = cluster
-                                     
-                return True
+                last_cluster = cluster
 
-        return False
+            else:
+                self.f.seek(ent_loc+26)
+                self.f.write(cluster.to_bytes(2, "little"))
+                last_cluster = cluster
+
+        return True
 
 if __name__ == "__main__":
     print("Not a standalone script!")
