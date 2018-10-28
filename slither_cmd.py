@@ -76,6 +76,20 @@ class Slither_CMD(Cmd):
         else:
             print("No disk mounted!")
 
+    def do_boot(self, arg):
+        "boot <bootloader>"
+
+        if len(arg) != 1:
+            self.arg_count()
+            return False
+
+        try:
+            self.disk.addBootloader(arg[0])
+            print("Succesfully added the bootloader!")
+
+        except SlitherIOError as e:
+            print(e.msg)
+
     def do_dir(self, arg):
         "dir <>"
 

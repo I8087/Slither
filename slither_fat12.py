@@ -521,6 +521,19 @@ class FAT12:
 
         return True
 
+    def addBootloader(self, file, contents):
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
+
+        # Fit the last data into the size of a sector, if needed.
+        if len(contents) % self.attr["Bytes_Per_Sector"]:
+            contents += b'\x00' * (self.attr["Bytes_Per_Sector"] - (len(contents) % self.attr["Bytes_Per_Sector"]))
+
+        self.f.seek(0)
+
+        self.f.write(contents)
+
 if __name__ == "__main__":
     print("Not a standalone script!")
     exit(-1)
