@@ -5,19 +5,6 @@ import os
 import configparser
 import datetime
 
-    #"IBM PC 3.5IN 320KB"
-    #"IBM PC 3.5IN 360KB"
-    #"IBM PC 3.5IN 640KB"
-    #"IBM PC 3.5IN 720KB"
-    #"IBM PC 3.5IN 1.44MB"
-    #"IBM PC 3.5IN 1.68MB"
-    #"IBM PC 3.5IN 1.72MB"
-    #"IBM PC 3.5IN 2.88MB"
-
-
-KiB = 1024
-MiB = KiB * 1024
-
 # Handles all of the IO exceptions in Slither.
 class SlitherIOError(Exception):
 
