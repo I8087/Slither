@@ -204,7 +204,6 @@ class FAT12:
 
         self.attr = self.disk_formats[style]
 
-
         self.f.close()
         self.f = open(self.fp, "wb")
 
@@ -241,6 +240,9 @@ class FAT12:
         self.f.write(bytes(self.attr["Volume_Label"][:11].ljust(11), "ascii")) # Volume Label
         self.f.write(bytes(self.attr["Identifier"][:8].ljust(8), "ascii")) # File System Identifier
 
+        # FAT ID
+        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"])
+        self.f.write(b"\xF0\xFF\xFF")
 
     # Gets a list of files in the root directory.
     def getDir(self, vFAT=False):
@@ -459,7 +461,7 @@ class FAT12:
         while sectors:
 
             # Calculate the location of the next cluster.
-            fat_offset = cluster + (cluster // 2)
+            fat_offset = int(cluster * 1.5)
 
             # Check if the current cluster is even or odd.
             even = cluster & 1
@@ -472,7 +474,7 @@ class FAT12:
             if even:
                 _cluster >>= 4
             else:
-                _cluster &= 0x0FFF
+                _cluster &= 0xFFF
 
             if not _cluster:
                 cluster_chain.append(cluster)
@@ -480,7 +482,7 @@ class FAT12:
 
             cluster += 1
 
-        cluster_chain.append(0x0FFF)
+        cluster_chain.append(0xFFF)
         last_cluster = 0
 
         for cluster in cluster_chain:
