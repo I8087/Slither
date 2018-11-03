@@ -76,6 +76,35 @@ class Slither_CMD(Cmd):
         else:
             print("No disk mounted!")
 
+    def do_format(self, arg):
+        "format -g <style>"
+
+        if not len(arg):
+            self.arg_count()
+            return False
+
+        elif len(arg) == 1 and arg[0] == "-g":
+            print()
+            for i in self.disk.disk_formats:
+                print(i)
+
+        else:
+
+            style = ""
+            for i in arg:
+                style += "%s " % i
+            style = style.strip()
+
+            print("Formatting disk to %s ..." % style)
+
+            try:
+                self.disk.formatDisk(style)
+
+                print("Successfully formated the disk!")
+
+            except SlitherIOError as e:
+                print(e.msg)
+
     def do_boot(self, arg):
         "boot <bootloader>"
 
@@ -166,7 +195,6 @@ class Slither_CMD(Cmd):
 
         try:
             c = self.disk.getFile(arg[0])
-            print(len(c))
 
             if len(arg) == 2:
                 f = open(arg[1], "wb")
@@ -175,6 +203,7 @@ class Slither_CMD(Cmd):
 
             f.write(c)
             f.close()
+
             print("Successfully got the file!")
 
         except IOError:

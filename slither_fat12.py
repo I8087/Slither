@@ -193,47 +193,53 @@ class FAT12:
     def getFirstDataSector(self):
         return self.attr["Reserved_Sectors"]+self.attr["Sectors_Per_FAT"]*self.attr["FATs"] + self.getDirSector()
 
-    def format(self, style):
-            if not style in self.disk_formats:
-                exit(-1)
+    def formatDisk(self, style):
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
 
-            self.attr = self.disk_formats[style]
+        # Make sure the format style exists.
+        if style not in self.disk_formats:
+            raise SlitherIOError("FormatDoesNotExist", "The format doesn't exist!")
 
-            self.f = open(self.fp, "wb")
+        self.attr = self.disk_formats[style]
 
-          # Number of logical sectors multiplied by bytes per sector.
-            for i in range(self.attr["Logical_Sectors"] * self.attr["Bytes_Per_Sector"]):
-                self.f.write(b'\x00')
-            self.f.close()
 
-            self.f = open(self.fp, "rb+")
+        self.f.close()
+        self.f = open(self.fp, "wb")
 
-            #BPB
-            self.f.seek(0)
-            self.f.write(b'\xEB\x3C\x90')
-            self.f.write(bytes(self.attr["OEM_Label"][:8].ljust(8), "ascii"))
-            self.f.write(self.attr["Bytes_Per_Sector"].to_bytes(2, "little"))
-            self.f.write(self.attr["Sectors_Per_Cluster"].to_bytes(1, "little"))
-            self.f.write(self.attr["Reserved_Sectors"].to_bytes(2, "little"))
-            self.f.write(self.attr["FATs"].to_bytes(1, "little"))
-            self.f.write(self.attr["Dir_Entries"].to_bytes(2, "little")) # Directory Entries
-            self.f.write(self.attr["Logical_Sectors"].to_bytes(2, "little")) # Logical sectors
-            self.f.write(self.attr["Media_ID"].to_bytes(1, "little")) # Media Descriptor
-            self.f.write(self.attr["Sectors_Per_FAT"].to_bytes(2, "little")) # Sectors Per FAT
-            self.f.write(self.attr["Sectors_Per_Track"].to_bytes(2, "little")) # Sectors Per Track
-            self.f.write(self.attr["Sides"].to_bytes(2, "little")) # Number of Sides
-            self.f.write(self.attr["Hidden_Sectors"].to_bytes(4, "little")) # Hidden Sectors
-            self.f.write(self.attr["LBA_Sectors"].to_bytes(4, "little")) # LBA Sectors
+        # Number of logical sectors multiplied by bytes per sector.
+        for i in range(self.attr["Logical_Sectors"] * self.attr["Bytes_Per_Sector"]):
+            self.f.write(b'\x00')
+        self.f.close()
 
-            #EBPB
-            self.f.write(self.attr["Drive_Number"].to_bytes(1, "little")) # Drive Number
-            self.f.write(self.attr["Windows_NT_Flag"].to_bytes(1, "little")) # Windows NT Flag
-            self.f.write(self.attr["Signature"].to_bytes(1, "little")) # Signature
-            self.f.write(self.attr["Volume_ID"].to_bytes(4, "little")) # Volume ID
-            self.f.write(bytes(self.attr["Volume_Label"][:11].ljust(11), "ascii")) # Volume Label
-            self.f.write(bytes(self.attr["Identifier"][:8].ljust(8), "ascii")) # File System Identifier
+        self.f = open(self.fp, "rb+")
 
-            self.f.close()
+        self.f.seek(0)
+        self.f.write(b'\xEB\x3C\x90')
+
+        #BPB
+        self.f.write(bytes(self.attr["OEM_Label"][:8].ljust(8), "ascii"))
+        self.f.write(self.attr["Bytes_Per_Sector"].to_bytes(2, "little"))
+        self.f.write(self.attr["Sectors_Per_Cluster"].to_bytes(1, "little"))
+        self.f.write(self.attr["Reserved_Sectors"].to_bytes(2, "little"))
+        self.f.write(self.attr["FATs"].to_bytes(1, "little"))
+        self.f.write(self.attr["Dir_Entries"].to_bytes(2, "little")) # Directory Entries
+        self.f.write(self.attr["Logical_Sectors"].to_bytes(2, "little")) # Logical sectors
+        self.f.write(self.attr["Media_ID"].to_bytes(1, "little")) # Media Descriptor
+        self.f.write(self.attr["Sectors_Per_FAT"].to_bytes(2, "little")) # Sectors Per FAT
+        self.f.write(self.attr["Sectors_Per_Track"].to_bytes(2, "little")) # Sectors Per Track
+        self.f.write(self.attr["Sides"].to_bytes(2, "little")) # Number of Sides
+        self.f.write(self.attr["Hidden_Sectors"].to_bytes(4, "little")) # Hidden Sectors
+        self.f.write(self.attr["LBA_Sectors"].to_bytes(4, "little")) # LBA Sectors
+
+        #EBPB
+        self.f.write(self.attr["Drive_Number"].to_bytes(1, "little")) # Drive Number
+        self.f.write(self.attr["Windows_NT_Flag"].to_bytes(1, "little")) # Windows NT Flag
+        self.f.write(self.attr["Signature"].to_bytes(1, "little")) # Signature
+        self.f.write(self.attr["Volume_ID"].to_bytes(4, "little")) # Volume ID
+        self.f.write(bytes(self.attr["Volume_Label"][:11].ljust(11), "ascii")) # Volume Label
+        self.f.write(bytes(self.attr["Identifier"][:8].ljust(8), "ascii")) # File System Identifier
 
 
     # Gets a list of files in the root directory.
