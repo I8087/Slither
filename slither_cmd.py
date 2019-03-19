@@ -134,8 +134,8 @@ class Slither_CMD(Cmd):
         except SlitherIOError as e:
             print(e.msg)
 
-    def do_add(self, arg):
-        "add <file>"
+    def do_push(self, arg):
+        "push <file>"
 
         if len(arg) != 1:
             self.arg_count()
@@ -149,7 +149,7 @@ class Slither_CMD(Cmd):
 
             self.disk.addFile(arg[0], cnt)
 
-            print("Successfully added the file!")
+            print("Successfully pushed the file!")
 
         except IOError:
             print("Unable to read the file!")
@@ -186,8 +186,8 @@ class Slither_CMD(Cmd):
         except SlitherIOError as e:
             print(e.msg)
 
-    def do_get(self, arg):
-        "get <file> optional <newfile>"
+    def do_pull(self, arg):
+        "pull <file> optional <newfile>"
 
         if len(arg) not in (1, 2):
             self.arg_count()
@@ -204,7 +204,7 @@ class Slither_CMD(Cmd):
             f.write(c)
             f.close()
 
-            print("Successfully got the file!")
+            print("Successfully pulled the file!")
 
         except IOError:
             print("Unable to create file!")
