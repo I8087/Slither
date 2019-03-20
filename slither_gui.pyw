@@ -9,29 +9,38 @@ def selectItem(event):
         #editmenu.entryconfigure("Copy", state=NORMAL)
         #editmenu.entryconfigure("Rename", state=NORMAL)
         editmenu.entryconfigure("Delete", state=NORMAL)
-        #editmenu.entryconfigure("Pull File", state=NORMAL)
+        editmenu.entryconfigure("Pull File", state=NORMAL)
 
 def deselectItem():
-        editmenu.entryconfigure("Copy", state=DISABLED)
-        editmenu.entryconfigure("Rename", state=DISABLED)
-        editmenu.entryconfigure("Delete", state=DISABLED)
-        editmenu.entryconfigure("Pull File", state=DISABLED)
+    editmenu.entryconfigure("Copy", state=DISABLED)
+    editmenu.entryconfigure("Rename", state=DISABLED)
+    editmenu.entryconfigure("Delete", state=DISABLED)
+    editmenu.entryconfigure("Pull File", state=DISABLED)
 
 def deleteFile():
     curItem = tree.item(tree.focus())
-    print(curItem["text"])
     if messagebox.askquestion("Delete", "Are you sure you want to delete \'%s\'?" % curItem["text"], icon="warning") == "yes":
         slither_cmd.do_del((curItem["text"],))
-        tree.delete(tree.selection()[0])
-        deselectItem()
+        refreshTree()
+
+def pullFile():
+    curItem = tree.item(tree.focus())
+    #filename = filedialog.asksaveasfilename(initialdir = ".", title = "Save File")
+    slither_cmd.do_pull((curItem["text"],))
+
+def pushFile():
+    filename = filedialog.askopenfilename(initialdir = ".", title = "Select File")
+    slither_cmd.do_push((filename,))
+    refreshTree()
 
 def mountDisk():
-    filename = filedialog.askopenfilename(initialdir = ".",title = "Select file",filetypes = (("Virtual Floppy Disk", ("*.dmg", "*.flp", "*.vfd")), ("all files","*.*")))
+    filename = filedialog.askopenfilename(initialdir = ".", title = "Select Disk",filetypes = (("Virtual Floppy Disk", ("*.dmg", "*.flp", "*.vfd")), ("all files", "*.*")))
     slither_cmd.do_mount((filename,))
 
     if slither_cmd.disk.isMounted():
         filemenu.entryconfigure("Mount", state=DISABLED)
         filemenu.entryconfigure("Unmount", state=NORMAL)
+        editmenu.entryconfigure("Push File", state=NORMAL)
         root.title("Slither - [%s]" % filename)
         for i in slither_cmd.disk.getDir():
             tree.insert("", "end", text=i[0], values=("%s Bytes" % i[1], i[2], i[3]))
@@ -40,8 +49,16 @@ def unmountDisk():
         slither_cmd.do_unmount(tuple())
         filemenu.entryconfigure("Unmount", state = DISABLED)
         filemenu.entryconfigure("Mount", state = NORMAL)
+        editmenu.entryconfigure("Push File", state=DISABLED)
+        deselectItem()
         root.title("Slither - []")
         tree.delete(*tree.get_children())
+
+def refreshTree():
+    tree.delete(*tree.get_children())
+    for i in slither_cmd.disk.getDir():
+        tree.insert("", "end", text=i[0], values=("%s Bytes" % i[1], i[2], i[3]))
+
 
 # Let Slither know that the gui is running.
 SLITHER_GUI = True
@@ -82,8 +99,8 @@ editmenu.add_command(label="New Directory", state=DISABLED)
 
 editmenu.add_separator()
 
-editmenu.add_command(label="Push File", state=DISABLED)
-editmenu.add_command(label="Pull File", state=DISABLED)
+editmenu.add_command(label="Push File", command=pushFile, state=DISABLED)
+editmenu.add_command(label="Pull File", command=pullFile, state=DISABLED)
 
 editmenu.add_separator()
 
@@ -96,7 +113,7 @@ menubar.add_cascade(label="Edit", menu=editmenu)
 # Create the help menu.
 helpmenu = Menu(menubar, tearoff=0)
 
-helpmenu.add_command(label="About", state=DISABLED)
+helpmenu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Copyright (c) 2018-2019, Nathaniel Yodock\nAll rights reserved."))
 
 menubar.add_cascade(label="Help", menu=helpmenu)
 

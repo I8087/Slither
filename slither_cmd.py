@@ -147,7 +147,14 @@ class Slither_CMD(Cmd):
             cnt = f.read()
             f.close()
 
-            self.disk.addFile(arg[0], cnt)
+            # Create a string to hold the filename.
+            fn = arg[0]
+
+            # Don't add path to the file name!
+            if "/" in arg[0]:
+                fn = arg[0].split("/")[-1]
+
+            self.disk.addFile(fn, cnt)
 
             print("Successfully pushed the file!")
 
