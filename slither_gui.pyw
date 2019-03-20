@@ -1,5 +1,5 @@
 from tkinter import *
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from slither_cmd import * # The gui runs off of the command prompt.
 
@@ -7,7 +7,7 @@ def selectItem(event):
     curItem = tree.focus()
     if curItem:
         #editmenu.entryconfigure("Copy", state=NORMAL)
-        #editmenu.entryconfigure("Rename", state=NORMAL)
+        editmenu.entryconfigure("Rename", state=NORMAL)
         editmenu.entryconfigure("Delete", state=NORMAL)
         editmenu.entryconfigure("Pull File", state=NORMAL)
 
@@ -21,6 +21,13 @@ def deleteFile():
     curItem = tree.item(tree.focus())
     if messagebox.askquestion("Delete", "Are you sure you want to delete \'%s\'?" % curItem["text"], icon="warning") == "yes":
         slither_cmd.do_del((curItem["text"],))
+        refreshTree()
+
+def renameFile():
+    curItem = tree.item(tree.focus())
+    a = simpledialog.askstring("Rename", "Input the new file name:")
+    if a:
+        slither_cmd.do_ren((curItem["text"], a))
         refreshTree()
 
 def pullFile():
@@ -42,8 +49,7 @@ def mountDisk():
         filemenu.entryconfigure("Unmount", state=NORMAL)
         editmenu.entryconfigure("Push File", state=NORMAL)
         root.title("Slither - [%s]" % filename)
-        for i in slither_cmd.disk.getDir():
-            tree.insert("", "end", text=i[0], values=("%s Bytes" % i[1], i[2], i[3]))
+        refreshTree()
 
 def unmountDisk():
         slither_cmd.do_unmount(tuple())
@@ -57,7 +63,12 @@ def unmountDisk():
 def refreshTree():
     tree.delete(*tree.get_children())
     for i in slither_cmd.disk.getDir():
-        tree.insert("", "end", text=i[0], values=("%s Bytes" % i[1], i[2], i[3]))
+        b = int(i[1])
+        pf = "BYTES"
+        if b > 1024:
+            b = b // 1024
+            pf = "KiB"
+        tree.insert("", "end", text=i[0], values=("%d %s" % (b, pf), i[2], i[3]))
 
 
 # Let Slither know that the gui is running.
@@ -90,6 +101,10 @@ diskmenu = Menu(menubar, tearoff=0)
 diskmenu.add_command(label="Info", state=DISABLED)
 diskmenu.add_command(label="Space", state=DISABLED)
 
+diskmenu.add_separator()
+
+diskmenu.add_command(label="Format", state=DISABLED)
+
 menubar.add_cascade(label="Disk", menu=diskmenu)
 
 # Create the edit menu.
@@ -105,7 +120,7 @@ editmenu.add_command(label="Pull File", command=pullFile, state=DISABLED)
 editmenu.add_separator()
 
 editmenu.add_command(label="Copy", state=DISABLED)
-editmenu.add_command(label="Rename", state=DISABLED)
+editmenu.add_command(label="Rename", command=renameFile, state=DISABLED)
 editmenu.add_command(label="Delete", command=deleteFile, state=DISABLED)
 
 menubar.add_cascade(label="Edit", menu=editmenu)
