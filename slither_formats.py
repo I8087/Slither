@@ -66,7 +66,7 @@ if __name__ == "__main__":
     table["FATs"] = 2
     table["Dir_Entries"] = 244
     table["Logical_Sectors"] = 640
-    table["Media_ID"] = 240
+    table["Media_ID"] = 240 # Unknown Media ID
     table["Sectors_Per_FAT"] = 9
     table["Sectors_Per_Track"] = 8
     table["Sides"] = 1
@@ -81,10 +81,12 @@ if __name__ == "__main__":
     add_format("IBM PC 3.5IN 320KB")
 
     table["Logical_Sectors"] = 720
+    table["Media_ID"] = 248
     table["Sectors_Per_Track"] = 9
     add_format("IBM PC 3.5IN 360KB")
 
     table["Logical_Sectors"] = 1280
+    table["Media_ID"] = 251
     table["Sectors_Per_Track"] = 8
     table["Sides"] = 2
     add_format("IBM PC 3.5IN 640KB")
@@ -94,6 +96,7 @@ if __name__ == "__main__":
     add_format("IBM PC 3.5IN 720KB")
 
     table["Logical_Sectors"] = 2880
+    table["Media_ID"] = 240
     table["Sectors_Per_Track"] = 18
     add_format("IBM PC 3.5IN 1.44MB")
 

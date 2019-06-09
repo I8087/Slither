@@ -70,6 +70,26 @@ def refreshTree():
             pf = "KiB"
         tree.insert("", "end", text=i[0], values=("%d %s" % (b, pf), i[2], i[3]))
 
+def sortSize(reverse):
+    l = []
+
+    for i in tree.get_children(""):
+        s = tree.set(i, "size").split()
+        s[0] = int(s[0])
+
+        if s[1] == "KiB":
+            s[0] *= 1024
+
+        l.append((s[0], i))
+        
+    l.sort(reverse=reverse)
+
+    for index, (val, i) in enumerate(l):
+        tree.move(i, "", index)
+
+    # reverse sort next time
+    tree.heading("size", text="Size", command=lambda: sortSize(not reverse))
+
 
 # Let Slither know that the gui is running.
 SLITHER_GUI = True
@@ -135,7 +155,7 @@ menubar.add_cascade(label="Help", menu=helpmenu)
 # Create the tree view.
 tree = ttk.Treeview(root, columns=("size", "time", "date"))
 tree.heading("#0", text="File")
-tree.heading("size", text="Size")
+tree.heading("size", text="Size", command=lambda: sortSize(False))
 tree.heading("time", text="Modified Time")
 tree.heading("date", text="Modified Date")
 
