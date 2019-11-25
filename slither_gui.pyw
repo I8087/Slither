@@ -1,3 +1,4 @@
+import sys
 from tkinter import *
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -90,6 +91,10 @@ def sortSize(reverse):
     # reverse sort next time
     tree.heading("size", text="Size", command=lambda: sortSize(not reverse))
 
+# Only run if we're on Windows.
+if sys.platform == "win32":
+    import ctypes
+    ctypes.windll.shcore.SetProcessDpiAwareness(1) # Fixes blurry font.
 
 # Let Slither know that the gui is running.
 SLITHER_GUI = True
