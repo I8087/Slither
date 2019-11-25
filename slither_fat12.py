@@ -450,69 +450,74 @@ class FAT12:
             # Calculate the location of the next cluster.
             fat_offset = int(cluster * 1.5)
 
-            # Check if the current cluster is even or odd.
-            even = cluster & 1
+            # Check if the current cluster is odd.
+            odd = cluster % 1
 
-            # Check the next cluster.
+            # Get the next cluster.
             self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
             _cluster = int.from_bytes(self.f.read(2), "little")
 
             # Adjust the 12-bit cluster appropriately.
-            if even:
+            if odd:
                 _cluster >>= 4
             else:
                 _cluster &= 0xFFF
 
+
+            # If this cluster is free, add it to our list.
             if not _cluster:
                 cluster_chain.append(cluster)
                 sectors -= 1
 
             cluster += 1
 
+        # Add an end of cluster.
         cluster_chain.append(0xFFF)
         last_cluster = 0
 
-        for cluster in cluster_chain:
+        for c in cluster_chain:
 
-            if cluster != 0xFFF:
 
-                # Load the sector.
-                self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+            # Only write if we have something left to write.
+            if c != 0xFFF:
 
-                # Write to the sector.
+                # Load the cluster's sector(s).
+                self.f.seek(((c-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+                # Write to the cluster's sector(s).
                 self.f.write(contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
                 contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
 
 
-            # Save the cluster in the chain.
             if last_cluster:
 
-                # Calculate the location of the next cluster.
-                fat_offset = last_cluster + (cluster // 2)
+                # Calculate the location of the old cluster for the next cluster.
+                fat_offset = int(last_cluster * 1.5)
 
-                # Check if the current cluster is even or odd.
-                even = last_cluster & 1
+                # Check if the last cluster is odd.
+                odd = last_cluster & 1
 
-                # Load the next cluster.
+                # Load the old cluster.
                 self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                last_cluster = int.from_bytes(self.f.read(2), "little")
+                l = int.from_bytes(self.f.read(2), "little")
 
-                # Adjust the 12-bit cluster appropriately.
-                if even:
-                    last_cluster = cluster + (last_cluster & 0xF000)
+                # Add the current cluster in the old cluster's spot while preserving the 4 bit part of the neighboring cluster.
+                if odd:
+                    l = (c << 4) + (l & 0x000F)
                 else:
-                    cluster <<= 4
-                    last_cluster = cluster + (last_cluster & 0x000F)
+                    l = c + (l & 0xF000)
 
+                # Write the current cluster in the old cluster's spot.
                 self.f.seek(-2, 1)
-                self.f.write(last_cluster.to_bytes(2, "little"))
+                self.f.write(l.to_bytes(2, "little"))
 
-                last_cluster = cluster
+                last_cluster = c
 
             else:
+                # Write the first cluster in the directory entry so we know where to start looking.
                 self.f.seek(ent_loc+26)
-                self.f.write(cluster.to_bytes(2, "little"))
-                last_cluster = cluster
+                self.f.write(c.to_bytes(2, "little"))
+                last_cluster = c
 
         return True
 
