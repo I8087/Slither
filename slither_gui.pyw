@@ -1,8 +1,18 @@
 import sys
 from tkinter import *
 from tkinter import filedialog, messagebox, simpledialog, ttk
+from PIL import Image, ImageTk
 
 from slither_cmd import * # The gui runs off of the command prompt.
+
+aboutstr = """\
+Slither - Virtual Floppy Disk Editor.
+Copyright (c) 2018-2020, Nathaniel Yodock
+All rights reserved.
+
+Icons generated with Feather. https://feathericons.com/
+Copyright (c) 2013-2017, Cole Bemis"""
+
 
 # show the menu bar with a right click.
 def showMenu(event):
@@ -75,6 +85,7 @@ def unmountDisk():
 def refreshTree():
     tree.delete(*tree.get_children())
     for i in slither_cmd.disk.getDir():
+        icon = images["File"]
         if i[1]:
             b = int(i[1])
             pf = "BYTES"
@@ -84,7 +95,8 @@ def refreshTree():
         else:
             b = ""
             pf = ""
-        tree.insert("", "end", text=i[0], values=("{} {}".format(b, pf), i[2], i[3]))
+            icon = images["Folder"]
+        tree.insert("", "end", text=i[0], values=("{} {}".format(b, pf), i[2], i[3]), image=icon)
 
 def sortSize(reverse):
     l = []
@@ -168,7 +180,7 @@ menubar.add_cascade(label="Edit", menu=editmenu)
 # Create the help menu.
 helpmenu = Menu(menubar, tearoff=0)
 
-helpmenu.add_command(label="About", command=lambda: messagebox.showinfo("About", "Copyright (c) 2018-2019, Nathaniel Yodock\nAll rights reserved."))
+helpmenu.add_command(label="About", command=lambda: messagebox.showinfo("About", aboutstr))
 
 menubar.add_cascade(label="Help", menu=helpmenu)
 
@@ -190,6 +202,9 @@ tree.bind("<Button-3>", showMenu)
 # Run the gui.
 tree.pack(expand=True, fill="both")
 
+# Icons for files and folders.
+images = {"Folder": ImageTk.PhotoImage(Image.open("./icons/folder.bmp")),
+          "File": ImageTk.PhotoImage(Image.open("./icons/file.bmp"))}
 
 root.config(menu=menubar)
 root.mainloop()
