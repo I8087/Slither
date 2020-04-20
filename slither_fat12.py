@@ -20,6 +20,7 @@ class FAT12:
 
     def __init__(self, f=""):
 
+        # A dictionary containing common floppy disk file formats.
         self.disk_formats = {}
 
         self.fp = f
@@ -28,6 +29,11 @@ class FAT12:
 
         self.FS = "FAT12"
 
+        # Current directory path.
+        self.cd = "./"
+
+
+        # A dictionary for the BIOS Parameter Block.
         self.attr = {
             "OEM_Label" : "",
             "Bytes_Per_Sector" : 0,
@@ -50,6 +56,10 @@ class FAT12:
             "Identifier": ""}
 
         self.get_disk_formats()
+
+    #######################
+    # INTERNAL FUNCTIONS
+    #######################
 
     # Seek the Root Directory.
     def _seek_root(self):
@@ -108,6 +118,10 @@ class FAT12:
     # Returns the date in FAT format.
     def _get_date(self):
         return int(((datetime.datetime.now().year - 1980) << 9) + (datetime.datetime.now().month << 5) + datetime.datetime.now().day).to_bytes(2, "little")
+
+    #######################
+    # MAIN FUNCTIONS
+    #######################
 
     # Get a list of disk formats from formats.ini
     def get_disk_formats(self):
@@ -273,6 +287,15 @@ class FAT12:
                 l.append((name.decode(encoding="utf-16"),))
                 name = b""
 
+            # Is this a directory?
+            elif (fn[11] & 0x10):
+                time = int.from_bytes(fn[22:24], "little")
+                date = int.from_bytes(fn[24:26], "little")
+                l.append((fn[:8].decode(encoding="ascii").rstrip(),
+                          "",
+                          "{:0>2}:{:0>2}:{:0>2}".format((time >> 11) & 0x1F, (time >> 5) & 0x3F, (time & 0x1F) * 2),
+                          "{:0>2}/{:0>2}/{}".format((date >> 5) & 0xF, date & 0x1F, ((date >> 9) & 0x7F) + 1980)))
+                
             # Otherwise this is a 8.3 entry.
             elif fn[11] != 0x0F:
                 time = int.from_bytes(fn[22:24], "little")

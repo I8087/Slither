@@ -4,6 +4,17 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from slither_cmd import * # The gui runs off of the command prompt.
 
+# show the menu bar with a right click.
+def showMenu(event):
+
+    r = tree.identify_row(event.y)
+    if r:
+        tree.focus(r)
+        tree.selection_set(r)
+
+    selectItem(event)
+    menubar.post(event.x_root, event.y_root)
+
 def selectItem(event):
     curItem = tree.focus()
     if curItem:
@@ -64,12 +75,16 @@ def unmountDisk():
 def refreshTree():
     tree.delete(*tree.get_children())
     for i in slither_cmd.disk.getDir():
-        b = int(i[1])
-        pf = "BYTES"
-        if b > 1024:
-            b = b // 1024
-            pf = "KiB"
-        tree.insert("", "end", text=i[0], values=("%d %s" % (b, pf), i[2], i[3]))
+        if i[1]:
+            b = int(i[1])
+            pf = "BYTES"
+            if b > 1024:
+                b = b // 1024
+                pf = "KiB"
+        else:
+            b = ""
+            pf = ""
+        tree.insert("", "end", text=i[0], values=("{} {}".format(b, pf), i[2], i[3]))
 
 def sortSize(reverse):
     l = []
@@ -164,10 +179,17 @@ tree.heading("size", text="Size", command=lambda: sortSize(False))
 tree.heading("time", text="Modified Time")
 tree.heading("date", text="Modified Date")
 
+# Create a scrollbar.
+sb = ttk.Scrollbar(root, orient="vertical", command=tree.yview)
+sb.pack(side="right", fill="y")
+tree.configure(yscrollcommand=sb.set)
+
 tree.bind('<ButtonRelease-1>', selectItem)
+tree.bind("<Button-3>", showMenu)
 
 # Run the gui.
-tree.pack()
+tree.pack(expand=True, fill="both")
+
 
 root.config(menu=menubar)
 root.mainloop()
