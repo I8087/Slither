@@ -38,13 +38,14 @@ You can pass a list of commands before the script runs by using a semicolon (;) 
 
 ## List of Commands
 * `boot` - Loads a bootloader file at the beginning of the first logical sector.
-* `mount` - Mounts a virtual floppy disk in the current path directory.
-* `unmount` - Unmounts a disk, if a disk is mounted.
-* `format` - Wipes and reformats the disk.
-* `dir` - Displays the contents of the home directory.
+* `cd` - Sets the current directory.
 * `del` - Deletes a file on the virtual floppy disk.
-* `ren` - Renames a file on the virtual floppy disk.
+* `dir` - Displays the contents of the current directory.
+* `exit` - Unmounts the disk if mounted and then exits.
+* `format` - Wipes and reformats the disk.
+* `help` - Displays help and command information.
+* `mount` - Mounts a virtual floppy disk in the current path directory.
 * `pull` - Gets a file off of the virtual floppy disk.
 * `push` - Loads a file into the virtual floppy disk.
-* `help` - Displays help and command information.
-* `exit` - Unmounts the disk if mounted and then exits.
+* `ren` - Renames a file on the virtual floppy disk.
+* `unmount` - Unmounts a disk, if a disk is mounted.

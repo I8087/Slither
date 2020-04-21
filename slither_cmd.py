@@ -119,6 +119,19 @@ class Slither_CMD(Cmd):
         except SlitherIOError as e:
             print(e.msg)
 
+    def do_cd(self, arg):
+        "cd <path>"
+
+        if len(arg) != 1:
+            self.arg_count()
+            return False
+
+        try:
+            self.disk.downDir(arg[0])
+
+        except SlitherIOError as e:
+            print(e.msg)
+
     def do_dir(self, arg):
         "dir <>"
 
@@ -127,9 +140,22 @@ class Slither_CMD(Cmd):
             return False
 
         try:
-            print("Directory of drive:\n")
-            for i in self.disk.getDir():
-                print("{:<14}   {:>5} BYTES   {}   {}".format(i[0], i[1], i[2], i[3]))
+            print(self.disk.path)
+
+            e = self.disk.getDir()
+            dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+            dis_files = [i for i in e if e[i]["IS_FILE"]]
+
+            for i in sorted(dis_dir):
+                print("{:<14}                 {}   {}".format(i,
+                                                              e[i]["MODIFIED_TIME_STR"],
+                                                              e[i]["MODIFIED_DATE_STR"]))
+
+            for i in sorted(dis_files):
+                print("{:<14}   {:>5} BYTES   {}   {}".format(i,
+                                                              e[i]["SIZE"],
+                                                              e[i]["MODIFIED_TIME_STR"],
+                                                              e[i]["MODIFIED_DATE_STR"]))
 
         except SlitherIOError as e:
             print(e.msg)

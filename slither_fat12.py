@@ -30,8 +30,19 @@ class FAT12:
         self.FS = "FAT12"
 
         # Current directory path.
-        self.cd = "./"
+        self.path = "./"
 
+        # Start of the cluster chain for current directory.
+        self.dir_cluster = 0x000
+
+        # Flags for the attributes of a file entry.
+        self.attr_flags = {"READ_ONLY": 0x01,
+                            "HIDDEN": 0x02,
+                            "SYSTEM": 0x04,
+                            "VOLUME_ID": 0x08,
+                            "DIRECTORY": 0x10,
+                            "ARCHIVE": 0x20,
+                            "LFN": 0x0F}
 
         # A dictionary for the BIOS Parameter Block.
         self.attr = {
@@ -245,24 +256,81 @@ class FAT12:
         self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"])
         self.f.write(b"\xF0\xFF\xFF")
 
-    # Gets a list of files in the root directory.
-    def getDir(self, vFAT=False):
+    # Go down a subdirectory.
+    # To be worked on.
+    def downDir(self, sd):
 
         # Make sure the disk is mounted first!
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
+        e = self.getDir()
+        e_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+
+        if sd in e_dir:
+            self.dir_cluster = e[sd]["CLUSTER"]
+            self.path += "{}/".format(sd)
+
+    # Reads a directory and returns its content.
+    def readDir(self):
+        contents = bytes()
+        
+        # We're at the root directory.
+        if self.path == "./":
+
+            # Seek the start of the root directory.
+            self._seek_root()
+
+            # Read the root directory.
+            contents = self.f.read(32*self.attr["Dir_Entries"])
+
+        else:
+
+            cluster = self.dir_cluster
+            
+            while cluster and (cluster < 0xFF0):
+
+                # Load the sector.
+                self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+                # Read cluster data.
+                contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+
+                # Calculate the location of the next cluster.
+                fat_offset = int(cluster * 1.5)
+
+                # Check if the current cluster is even or odd.
+                even = cluster & 1
+
+                # Load the next cluster.
+                self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+                cluster = int.from_bytes(self.f.read(2), "little")
+
+                # Adjust the 12-bit cluster appropriately.
+                if even:
+                    cluster >>= 4
+                else:
+                    cluster &= 0xFFF
+
+        return contents
+
+    # Reads the Entry table for the current directory
+    # and returns a dictonary of entries.
+    def getDir(self, vFAT=False):
+
+        entries = {}
+
+        dir_data = self.readDir()
+
         l = []
         name = b""
 
-        # Seek the start of the root directory.
-        self._seek_root()
-
         # Start searching through the root directory.
-        for i in range(self.attr["Dir_Entries"]):
+        while dir_data:
 
             # Read the entry.
-            fn = self.f.read(32)
+            fn = dir_data[:32]
+            dir_data = dir_data[32:]
 
             # If this entry is empty, we're done.
             if not fn[0]:
@@ -272,6 +340,7 @@ class FAT12:
             elif fn[0] == 0xE5:
                 pass
 
+            # FIX!
             # Check to see if this is a vFAT entry.
             elif vFAT and fn[11] == 0x0F:
                 for i in range(5):
@@ -287,25 +356,65 @@ class FAT12:
                 l.append((name.decode(encoding="utf-16"),))
                 name = b""
 
-            # Is this a directory?
-            elif (fn[11] & 0x10):
-                time = int.from_bytes(fn[22:24], "little")
-                date = int.from_bytes(fn[24:26], "little")
-                l.append((fn[:8].decode(encoding="ascii").rstrip(),
-                          "",
-                          "{:0>2}:{:0>2}:{:0>2}".format((time >> 11) & 0x1F, (time >> 5) & 0x3F, (time & 0x1F) * 2),
-                          "{:0>2}/{:0>2}/{}".format((date >> 5) & 0xF, date & 0x1F, ((date >> 9) & 0x7F) + 1980)))
-                
-            # Otherwise this is a 8.3 entry.
-            elif fn[11] != 0x0F:
-                time = int.from_bytes(fn[22:24], "little")
-                date = int.from_bytes(fn[24:26], "little")
-                l.append((fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip(),
-                          int.from_bytes(fn[28:32], "little"),
-                          "{:0>2}:{:0>2}:{:0>2}".format((time >> 11) & 0x1F, (time >> 5) & 0x3F, (time & 0x1F) * 2),
-                          "{:0>2}/{:0>2}/{}".format((date >> 5) & 0xF, date & 0x1F, ((date >> 9) & 0x7F) + 1980)))
+           # Otherwise this is a 8.3 entry.
+            elif not (fn[11] & self.attr_flags["VOLUME_ID"] or fn[11] & self.attr_flags["LFN"]) :
 
-        return tuple(i for i in sorted(l))
+                entry = {}
+
+                # Read the entry.
+                entry["SHORT_NAME"] = fn[:8].decode(encoding="ascii").rstrip()
+                entry["SHORT_EXT"] = fn[8:11].decode(encoding="ascii").rstrip()
+                entry["ATTRIBUTES"] = int(fn[11])
+                entry["IS_READ_ONLY"] = bool(entry["ATTRIBUTES"] & self.attr_flags["READ_ONLY"])
+                entry["IS_HIDDEN"] = bool(entry["ATTRIBUTES"] & self.attr_flags["HIDDEN"])
+                entry["IS_SYSTEM"] = bool(entry["ATTRIBUTES"] & self.attr_flags["SYSTEM"])
+                entry["IS_VOLUME_ID"] = bool(entry["ATTRIBUTES"] & self.attr_flags["VOLUME_ID"])
+                entry["IS_DIRECTORY"] = bool(entry["ATTRIBUTES"] & self.attr_flags["DIRECTORY"])
+                entry["IS_ARCHIVE"] = bool(entry["ATTRIBUTES"] & self.attr_flags["ARCHIVE"])
+                entry["IS_FILE"] = not (entry["IS_VOLUME_ID"] or entry["IS_DIRECTORY"])
+                entry["RESERVED"] = int(fn[12])
+                entry["CREATION_TENTH_SECOND"] = int(fn[13])
+                entry["CREATION_TIME"] = int.from_bytes(fn[14:16], "little")
+                entry["CREATION_TIME_SECOND"] = (entry["CREATION_TIME"] & 0x1F) * 2
+                entry["CREATION_TIME_MINUTE"] = (entry["CREATION_TIME"] >> 5) & 0x3F
+                entry["CREATION_TIME_HOUR"] = (entry["CREATION_TIME"] >> 11) & 0x1F
+                entry["CREATION_TIME_STR"] = "{:0>2}:{:0>2}:{:0>2}".format(entry["CREATION_TIME_HOUR"], entry["CREATION_TIME_MINUTE"], entry["CREATION_TIME_SECOND"])
+                entry["CREATION_DATE"] = int.from_bytes(fn[16:18], "little")
+                entry["CREATION_DATE_DAY"] = entry["CREATION_DATE"] & 0x1F
+                entry["CREATION_DATE_MONTH"] = (entry["CREATION_DATE"] >> 5) & 0xF
+                entry["CREATION_DATE_YEAR"] = ((entry["CREATION_DATE"] >> 9) & 0x7F) + 1980
+                entry["CREATION_DATE_STR"] = "{:0>2}/{:0>2}/{}".format(entry["CREATION_DATE_MONTH"], entry["CREATION_DATE_DAY"], entry["CREATION_DATE_YEAR"]) #MMDDYYYY
+                entry["ACCESSED_DATE"] = int.from_bytes(fn[18:20], "little")
+                entry["ACCESSED_DATE_DAY"] = entry["ACCESSED_DATE"] & 0x1F
+                entry["ACCESSED_DATE_MONTH"] = (entry["ACCESSED_DATE"] >> 5) & 0xF
+                entry["ACCESSED_DATE_YEAR"] = ((entry["ACCESSED_DATE"] >> 9) & 0x7F) + 1980
+                entry["ACCESSED_DATE_STR"] = "{:0>2}/{:0>2}/{}".format(entry["ACCESSED_DATE_MONTH"], entry["ACCESSED_DATE_DAY"], entry["ACCESSED_DATE_YEAR"]) #MMDDYYYY
+                entry["HIGHER_CLUSTER"] = int.from_bytes(fn[20:22], "little")
+                entry["MODIFIED_TIME"] = int.from_bytes(fn[22:24], "little")
+                entry["MODIFIED_TIME_SECOND"] = (entry["MODIFIED_TIME"] & 0x1F) * 2
+                entry["MODIFIED_TIME_MINUTE"] = (entry["MODIFIED_TIME"] >> 5) & 0x3F
+                entry["MODIFIED_TIME_HOUR"] = (entry["MODIFIED_TIME"] >> 11) & 0x1F
+                entry["MODIFIED_TIME_STR"] = "{:0>2}:{:0>2}:{:0>2}".format(entry["MODIFIED_TIME_HOUR"], entry["MODIFIED_TIME_MINUTE"], entry["MODIFIED_TIME_SECOND"])
+                entry["MODIFIED_DATE"] = int.from_bytes(fn[24:26], "little")
+                entry["MODIFIED_DATE_DAY"] = entry["MODIFIED_DATE"] & 0x1F
+                entry["MODIFIED_DATE_MONTH"] = (entry["MODIFIED_DATE"] >> 5) & 0xF
+                entry["MODIFIED_DATE_YEAR"] = ((entry["MODIFIED_DATE"] >> 9) & 0x7F) + 1980
+                entry["MODIFIED_DATE_STR"] = "{:0>2}/{:0>2}/{}".format(entry["MODIFIED_DATE_MONTH"], entry["MODIFIED_DATE_DAY"], entry["MODIFIED_DATE_YEAR"]) #MMDDYYYY
+                entry["LOWER_CLUSTER"] = int.from_bytes(fn[26:28], "little")
+                entry["CLUSTER"] = ( entry["HIGHER_CLUSTER"] << 16) + entry["LOWER_CLUSTER"]
+                entry["SIZE"] = int.from_bytes(fn[28:32], "little")
+                # entry["SIZE_ON_DISK"]
+
+                # Generate a name for the file/directory.
+                if entry["IS_DIRECTORY"] or not entry["SHORT_EXT"]:
+                    entry["SHORT_FILE_NAME"] = entry["SHORT_NAME"]
+                else:
+                    entry["SHORT_FILE_NAME"] = "{}.{}".format(entry["SHORT_NAME"], entry["SHORT_EXT"])
+
+                # Add the entry to the list of entries.
+                entries[entry["SHORT_FILE_NAME"]] = entry
+
+        return entries
 
     # Get the contents of a file off the disk.
     def getFile(self, file, vFAT=False):
@@ -324,7 +433,7 @@ class FAT12:
         # Get cluster and file size.
         cluster = int.from_bytes(fn[26:28], "little")
         file_size = int.from_bytes(fn[28:32], "little")
-        
+
         contents = bytes()
 
         while cluster and (cluster < 0xFF0) and (file_size > 1):

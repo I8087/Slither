@@ -84,19 +84,35 @@ def unmountDisk():
 
 def refreshTree():
     tree.delete(*tree.get_children())
-    for i in slither_cmd.disk.getDir():
-        icon = images["File"]
-        if i[1]:
-            b = int(i[1])
-            pf = "BYTES"
-            if b > 1024:
-                b = b // 1024
-                pf = "KiB"
-        else:
-            b = ""
-            pf = ""
-            icon = images["Folder"]
-        tree.insert("", "end", text=i[0], values=("{} {}".format(b, pf), i[2], i[3]), image=icon)
+
+    e = slither_cmd.disk.getDir()
+    dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+    dis_files = [i for i in e if e[i]["IS_FILE"]]
+
+    for i in sorted(dis_dir):
+
+        tree.insert("",
+                    "end",
+                    text=i,
+                    values=("", e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
+                    image=images["Folder"])
+
+
+    for i in sorted(dis_files):
+
+        # Get appropriate size.
+        b = e[i]["SIZE"]
+        pf = "B"
+        if b > 1024:
+            b = b // 1024
+            pf = "KiB"
+
+        tree.insert("",
+                    "end",
+                    text=i,
+                    values=("{} {}".format(b, pf), e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
+                    image=images["File"])
+
 
 def sortSize(reverse):
     l = []
