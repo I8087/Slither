@@ -14,6 +14,16 @@ Icons generated with Feather. https://feathericons.com/
 Copyright (c) 2013-2017, Cole Bemis"""
 
 
+def onDoubleClick(event):
+    curItem = tree.item(tree.focus())
+
+    e = slither_cmd.disk.getDir()
+    e_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+
+    if curItem["text"] in e_dir:
+        slither_cmd.do_cd((curItem["text"],))
+        refreshTree()
+
 # show the menu bar with a right click.
 def showMenu(event):
 
@@ -214,6 +224,7 @@ tree.configure(yscrollcommand=sb.set)
 
 tree.bind('<ButtonRelease-1>', selectItem)
 tree.bind("<Button-3>", showMenu)
+tree.bind("<Double-1>", onDoubleClick)
 
 # Run the gui.
 tree.pack(expand=True, fill="both")
