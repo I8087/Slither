@@ -33,7 +33,7 @@ class FAT12:
         self.path = "./"
 
         # Start of the cluster chain for current directory.
-        self.dir_cluster = 0x000
+        self.dir_cluster = 0
 
         # Flags for the attributes of a file entry.
         self.attr_flags = {"READ_ONLY": 0x01,
@@ -276,7 +276,7 @@ class FAT12:
         contents = bytes()
         
         # We're at the root directory.
-        if self.path == "./":
+        if not self.dir_cluster:
 
             # Seek the start of the root directory.
             self._seek_root()
