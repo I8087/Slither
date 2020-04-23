@@ -16,4 +16,4 @@
 ### Added
 - Initial release committed.
 
-[1.2]: https://github.com/I8087/Slither/compare/v1.0...v1.1
+[1.1]: https://github.com/I8087/Slither/compare/v1.0...v1.1
