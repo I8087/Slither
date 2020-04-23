@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from PIL import Image, ImageTk
 
 from slither_cmd import * # The gui runs off of the command prompt.
+from slither_icons import *
 
 aboutstr = """\
 Slither - Virtual Floppy Disk Editor.
@@ -233,8 +234,8 @@ tree.bind("<Double-1>", onDoubleClick)
 tree.pack(expand=True, fill="both")
 
 # Icons for files and folders.
-images = {"Folder": ImageTk.PhotoImage(Image.open("./icons/folder.bmp")),
-          "File": ImageTk.PhotoImage(Image.open("./icons/file.bmp"))}
+images = {"Folder": ImageTk.PhotoImage(SlitherIcons().getFolder()),
+          "File": ImageTk.PhotoImage(SlitherIcons().getFile())}
 
 root.config(menu=menubar)
 root.mainloop()
