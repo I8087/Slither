@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
 import sys
 from cmd import Cmd
 from slither_fat12 import *

@@ -1,9 +1,12 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
 import os, sys, shutil
 import PyInstaller.__main__
 
 build_scripts = ("slither", "slither_gui")
 
-if sys.platform not in ("win32", "win64"):
+if sys.platform not in ("win32", "win64", "linux"):
     print("Slither doesn't support building on this os!")
     exit(-1)
 
@@ -20,6 +23,7 @@ PyInstaller.__main__.run(
     ["--clean",
      "--noconsole",
      "--onefile",
+     "--hidden-import=PIL._tkinter_finder",
      "-nslither_gui",
      "slither_gui.pyw"
      ])

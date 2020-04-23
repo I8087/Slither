@@ -1,3 +1,6 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+
 import sys
 from tkinter import *
 from tkinter import filedialog, messagebox, simpledialog, ttk
