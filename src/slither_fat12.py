@@ -78,41 +78,22 @@ class FAT12:
 
     # Seeks a file. Returns False if it doesn't exist, otherwise it's True.
     def _seek_file(self, file):
-        # Seek the start of the root directory.
-        self._seek_root()
 
-        # Start searching for the file.
-        for i in range(self.attr["Dir_Entries"]):
-
-            # Read the entry.
-            fn = self.f.read(32)
-
-            # Check to see if this is an entry.
-            if fn[0] not in (0x00, 0xE5) and fn[11] != 0x0F:
-
-                if file == fn[:8].decode(encoding="ascii").rstrip() + "." + fn[8:11].decode(encoding="ascii").rstrip():
-                    self.f.seek(-32, 1)
-                    return True
-
-        return False
+        # Get a list of files in the directory.
+        e = self.getDir()
+        e_files = [i for i in e if e[i]["IS_FILE"]]
+        
+        # Find the file!
+        if file in e_files:
+            self.f.seek(e[file]["LBA"])
+            return True
+        else:
+            return False
 
     # Seeks a free entry.
+    # Deprecated. Use findFreeEntry()
     def _seek_free(self, file):
-        # Seek the start of the root directory.
-        self._seek_root()
-
-        # Start searching for the file.
-        for i in range(self.attr["Dir_Entries"]):
-
-            # Read the entry.
-            fn = self.f.read(32)
-
-            # Check to see if this is a free entry.
-            if fn[0] in (0x00, 0xE5):
-                    self.f.seek(-32, 1)
-                    return True
-
-        return False
+        return self.findFreeEntry()
 
     # Converts a filename into a FAT short file name string.
     def _to_sfn(self, file):
@@ -269,20 +250,33 @@ class FAT12:
 
         if sd in e_dir:
             self.dir_cluster = e[sd]["CLUSTER"]
-            self.path += "{}/".format(sd)
 
-    # Reads a directory and returns its content.
-    def readDir(self):
-        contents = bytes()
-        
+            if sd == ".":
+                pass
+            elif sd == ".." and self.path != "./":
+                self.path = self.path[:self.path[:-1].rfind("/")+1]
+            else:
+                self.path += "{}/".format(sd)
+
+    # Finds a free entry and moves the file pointer there.
+    def findFreeEntry(self):
+
         # We're at the root directory.
         if not self.dir_cluster:
 
             # Seek the start of the root directory.
             self._seek_root()
 
-            # Read the root directory.
-            contents = self.f.read(32*self.attr["Dir_Entries"])
+            # Start searching for the file.
+            for i in range(self.attr["Dir_Entries"]):
+
+                # Read the entry.
+                fn = self.f.read(32)
+
+                # Check to see if this is a free entry.
+                if fn[0] in (0x00, 0xE5):
+                        self.f.seek(-32, 1)
+                        return True
 
         else:
 
@@ -292,6 +286,16 @@ class FAT12:
 
                 # Load the sector.
                 self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+                # Get a list of the file entry's LBA.
+                for i in range(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"] // 32):
+                    # Read the entry.
+                    fn = self.f.read(32)
+
+                    # Check to see if this is a free entry.
+                    if fn[0] in (0x00, 0xE5):
+                        self.f.seek(-32, 1)
+                        return True
 
                 # Read cluster data.
                 contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
@@ -312,7 +316,61 @@ class FAT12:
                 else:
                     cluster &= 0xFFF
 
-        return contents
+        return False
+
+
+    # Reads a directory and returns its content.
+    def readDir(self):
+        contents = bytes()
+
+        sector_offsets = []
+        
+        # We're at the root directory.
+        if not self.dir_cluster:
+
+            # Seek the start of the root directory.
+            self._seek_root()
+
+            # Get a list of the file entry's LBA.
+            for i in range(self.attr["Dir_Entries"]):
+                sector_offsets.append(self.f.tell()+i*32)
+
+            # Read the root directory.
+            contents = self.f.read(32*self.attr["Dir_Entries"])
+
+        else:
+
+            cluster = self.dir_cluster
+            
+            while cluster and (cluster < 0xFF0):
+
+                # Load the sector.
+                self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+                # Get a list of the file entry's LBA.
+                for i in range(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"] // 32):
+                    sector_offsets.append(self.f.tell()+(i*32))
+
+                # Read cluster data.
+                contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+
+                # Calculate the location of the next cluster.
+                fat_offset = int(cluster * 1.5)
+
+                # Check if the current cluster is even or odd.
+                even = cluster & 1
+
+                # Load the next cluster.
+                self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+                cluster = int.from_bytes(self.f.read(2), "little")
+
+                # Adjust the 12-bit cluster appropriately.
+                if even:
+                    cluster >>= 4
+                else:
+                    cluster &= 0xFFF
+
+        return contents, sector_offsets
 
     # Reads the Entry table for the current directory
     # and returns a dictonary of entries.
@@ -320,7 +378,9 @@ class FAT12:
 
         entries = {}
 
-        dir_data = self.readDir()
+        dir_data, sector_offsets = self.readDir()
+
+        offset_count = 0
 
         l = []
         name = b""
@@ -411,8 +471,13 @@ class FAT12:
                 else:
                     entry["SHORT_FILE_NAME"] = "{}.{}".format(entry["SHORT_NAME"], entry["SHORT_EXT"])
 
+                # Get the file entry's location in LBA.
+                entry["LBA"] = sector_offsets[0]
+
                 # Add the entry to the list of entries.
                 entries[entry["SHORT_FILE_NAME"]] = entry
+
+            del sector_offsets[0]
 
         return entries
 
