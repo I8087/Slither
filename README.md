@@ -1,10 +1,16 @@
 # Slither
 Slither is a simple virtual floppy disk explorer that makes manipulating a virtual floppy disk easier. The editing prompt is provided as `slither_cmd.py` and a user-friendly gui version of the program is `slither_gui.pyw`. **ALTHOUGH I'VE MADE A LOT OF PROGRESS ON STABILITY, YOU SHOULD STILL BACK UP YOUR VIRTUAL FLOPPY DISKS BEFORE USING THIS PROGRAM!**
 
-### Releases
+## Releases
 Releases are currently being built for Windows and Linux using [PyInstaller](https://github.com/pyinstaller/pyinstaller). You can find the latest releases **[here](https://github.com/I8087/Slither/releases)**.
 
-### Requirements
+## License
+Slither is licensed under the BSD 2-Clause "Simplified" License. The full text can be found in the LICENSE file.
+
+## Contributing
+Contributing is welcomed and appreciated. Submitting any issues, errors, or even suggests are also greatly appreciated. They help make Slither more reliable.
+
+## Requirements
 * [**Python**](https://www.python.org/downloads/)
 
 ## Getting Started
