@@ -130,7 +130,7 @@ class Slither_CMD(Cmd):
             return False
 
         try:
-            self.disk.downDir(arg[0])
+            self.disk.goDir(arg[0])
 
         except SlitherIOError as e:
             print(e.msg)
@@ -230,7 +230,7 @@ class Slither_CMD(Cmd):
             return False
 
         try:
-            c = self.disk.getFile(arg[0])
+            c = self.disk.readFile(arg[0])
 
             if len(arg) == 2:
                 f = open(arg[1], "wb")

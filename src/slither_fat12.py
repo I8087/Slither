@@ -237,9 +237,82 @@ class FAT12:
         self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"])
         self.f.write(b"\xF0\xFF\xFF")
 
-    # Go down a subdirectory.
-    # To be worked on.
-    def downDir(self, sd):
+
+    ############################
+    # CLUSTER CHAIN FUNCTIONS
+    ############################
+
+    # Returns a tuple of a cluster chain.
+    def getChain(self, cluster):
+
+        cc = [cluster]
+
+        while cluster and (cluster < 0xFF0):
+
+            # Calculate the location of the next cluster.
+            fat_offset = int(cluster * 1.5)
+
+            # Check if the current cluster is even or odd.
+            even = cluster & 1
+
+            # Load the next cluster.
+            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+            cluster = int.from_bytes(self.f.read(2), "little")
+
+            # Adjust the 12-bit cluster appropriately.
+            if even:
+                cluster >>= 4
+            else:
+                cluster &= 0xFFF
+
+            cc.append(cluster)
+
+        return tuple(cc)
+
+    # Loads the content of a cluster chain.
+    def readChain(self, cluster):
+
+        contents = bytes()
+
+        # Get the cluster chain.
+        cc = self.getChain(cluster)
+
+        for i in cc:
+
+            # Load the sector.
+            self.f.seek(((i-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+            # Read cluster data.
+            contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+
+        return contents
+
+    # Adds cluster(s) to the cluster chain.
+    # TODO
+    def growChain(self, clusters):
+        pass
+
+    # Removes cluster(s) from the cluster chain.
+    # TODO
+    def shrinkChain(self, clusters):
+        pass
+
+    # Completely removes the cluster chain.
+    # TODO
+    def deleteChain(self, clusters):
+        pass
+
+    # Creates a cluster chain.
+    # TODO
+    def makeChain(self, clusters):
+        pass
+
+    ############################
+    # DIRECTORY FUNCTIONS
+    ############################
+
+    # Go to the directory path given.
+    def goDir(self, sd):
 
         # Make sure the disk is mounted first!
         if not self.isMounted():
@@ -461,9 +534,9 @@ class FAT12:
                 entry["MODIFIED_DATE_YEAR"] = ((entry["MODIFIED_DATE"] >> 9) & 0x7F) + 1980
                 entry["MODIFIED_DATE_STR"] = "{:0>2}/{:0>2}/{}".format(entry["MODIFIED_DATE_MONTH"], entry["MODIFIED_DATE_DAY"], entry["MODIFIED_DATE_YEAR"]) #MMDDYYYY
                 entry["LOWER_CLUSTER"] = int.from_bytes(fn[26:28], "little")
-                entry["CLUSTER"] = ( entry["HIGHER_CLUSTER"] << 16) + entry["LOWER_CLUSTER"]
+                entry["CLUSTER"] = (entry["HIGHER_CLUSTER"] << 16) + entry["LOWER_CLUSTER"]
                 entry["SIZE"] = int.from_bytes(fn[28:32], "little")
-                # entry["SIZE_ON_DISK"]
+                entry["SIZE_ON_DISK"] = self.getChain(len(self.getChain(entry["CLUSTER"]))*self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
 
                 # Generate a name for the file/directory.
                 if entry["IS_DIRECTORY"] or not entry["SHORT_EXT"]:
@@ -481,57 +554,37 @@ class FAT12:
 
         return entries
 
+    ############################
+    # FILE FUNCTIONS
+    ############################
+
     # Get the contents of a file off the disk.
-    def getFile(self, file, vFAT=False):
+    def readFile(self, file, vFAT=False):
 
         # Make sure the disk is mounted first!
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
-        # Seek the file entry.
-        if not self._seek_file(file):
+        # Read the current directory.
+        e = self.getDir()
+
+        # Make sure the file exists.
+        if file not in [i for i in e if e[i]["IS_FILE"]]:
             raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
 
-        # Read the file entry.
-        fn = self.f.read(32)
+        # Return the file's content.
+        return self.readChain(e[file]["CLUSTER"])[:e[file]["SIZE"]]
 
-        # Get cluster and file size.
-        cluster = int.from_bytes(fn[26:28], "little")
-        file_size = int.from_bytes(fn[28:32], "little")
+    # Creates a new, empty file.
+    # TODO
+    def newFile(self, file):
+        pass
 
-        contents = bytes()
+    # Appends a file.
+    # TODO
+    def appendFile(self, file):
+        pass
 
-        while cluster and (cluster < 0xFF0) and (file_size > 1):
-
-            # Load the sector.
-            self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
-
-            # Check to see if this is the last sector.
-            if file_size > (self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]):
-                contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
-            else:
-                contents += self.f.read(file_size)
-
-            # Subtract a sector from the file size counter.
-            file_size -= self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]
-
-            # Calculate the location of the next cluster.
-            fat_offset = int(cluster * 1.5)
-
-            # Check if the current cluster is even or odd.
-            even = cluster & 1
-
-            # Load the next cluster.
-            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-            cluster = int.from_bytes(self.f.read(2), "little")
-
-            # Adjust the 12-bit cluster appropriately.
-            if even:
-                cluster >>= 4
-            else:
-                cluster &= 0xFFF
-
-        return contents
 
     # Rename a file.
     def renameFile(self, oldname, newname):
@@ -599,6 +652,8 @@ class FAT12:
 
         return True
 
+
+    # Change to writeFile.
     def addFile(self, file, contents):
         # Make sure the disk is mounted first!
         if not self.isMounted():
