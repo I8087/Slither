@@ -103,14 +103,6 @@ class FAT12:
     def _to_sfn_b(self, file):
         return bytes(self._to_sfn(file), "ascii")
 
-    # Returns the time in FAT format.
-    def _get_time(self):
-        return int((datetime.datetime.now().hour << 11) + (datetime.datetime.now().minute << 5) + (datetime.datetime.now().second // 2)).to_bytes(2, "little")
-
-    # Returns the date in FAT format.
-    def _get_date(self):
-        return int(((datetime.datetime.now().year - 1980) << 9) + (datetime.datetime.now().month << 5) + datetime.datetime.now().day).to_bytes(2, "little")
-
     #######################
     # MAIN FUNCTIONS
     #######################
@@ -237,6 +229,53 @@ class FAT12:
         self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"])
         self.f.write(b"\xF0\xFF\xFF")
 
+    ############################
+    # ENTRY EXISTS FUNCTIONS
+    ############################
+
+    # Checks to see if that entry exists.
+    def doesExist(self, entry):
+
+        # Get a list of everything in the current directory.
+        e = self.getDir()
+
+        if entry in e.keys():
+            return True
+
+        return False
+
+    # Checks to see if a file exists.
+    def fileExists(self, file):
+
+        # Get a list of files in the directory.
+        e = self.getDir()
+        if file in [i for i in e if e[i]["IS_FILE"]]:
+            return True
+
+        return False
+
+    # Checks to see if a directory exists.
+    def dirExists(self, directory):
+
+        # Get a list of files in the directory.
+        e = self.getDir()
+        if directory in [i for i in e if e[i]["IS_DIRECTORY"]]:
+            return True
+
+        return False
+
+    ############################
+    # TIME & DATE FUNCTIONS
+    ############################
+
+    # Returns the time in FAT format.
+    def getTime(self):
+        return int((datetime.datetime.now().hour << 11) + (datetime.datetime.now().minute << 5) + (datetime.datetime.now().second // 2)).to_bytes(2, "little")
+
+    # Returns the date in FAT format.
+    def getDate(self):
+        return int(((datetime.datetime.now().year - 1980) << 9) + (datetime.datetime.now().month << 5) + datetime.datetime.now().day).to_bytes(2, "little")
+
 
     ############################
     # CLUSTER CHAIN FUNCTIONS
@@ -298,9 +337,28 @@ class FAT12:
         pass
 
     # Completely removes the cluster chain.
-    # TODO
-    def deleteChain(self, clusters):
-        pass
+    def deleteChain(self, cluster):
+
+        while cluster and (cluster < 0xFF0):
+
+            # Calculate the location of the next cluster.
+            fat_offset = int(cluster * 1.5)
+
+            # Check if the current cluster is even or odd.
+            even = cluster & 1
+
+            # Load the next cluster.
+            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
+            cluster = int.from_bytes(self.f.read(2), "little")
+            self.f.seek(-2, 1)
+
+            # Adjust the 12-bit cluster appropriately.
+            if even:
+                self.f.write((cluster & 0xF).to_bytes(2, "little"))
+                cluster >>= 4
+            else:
+                self.f.write((cluster & 0xF000).to_bytes(2, "little"))
+                cluster &= 0xFFF
 
     # Creates a cluster chain.
     # TODO
@@ -475,7 +533,7 @@ class FAT12:
 
             # FIX!
             # Check to see if this is a vFAT entry.
-            elif vFAT and fn[11] == 0x0F:
+            elif vFAT and fn[11] & self.attr_flags["LFN"]:
                 for i in range(5):
                     if fn[1+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
                         name += fn[1+(i*2)].to_bytes(2, "little")
@@ -487,6 +545,7 @@ class FAT12:
                         name += fn[0x1C+(i*2)].to_bytes(2, "little")
             elif name:
                 l.append((name.decode(encoding="utf-16"),))
+                #print(name.decode(encoding="utf-16"))
                 name = b""
 
            # Otherwise this is a 8.3 entry.
@@ -558,6 +617,11 @@ class FAT12:
     # FILE FUNCTIONS
     ############################
 
+    # Creates a new, empty file.
+    # TODO
+    def newFile(self, file):
+        pass
+
     # Get the contents of a file off the disk.
     def readFile(self, file, vFAT=False):
 
@@ -575,93 +639,18 @@ class FAT12:
         # Return the file's content.
         return self.readChain(e[file]["CLUSTER"])[:e[file]["SIZE"]]
 
-    # Creates a new, empty file.
-    # TODO
-    def newFile(self, file):
-        pass
+    def writeFile(self, file, contents):
 
-    # Appends a file.
-    # TODO
-    def appendFile(self, file):
-        pass
-
-
-    # Rename a file.
-    def renameFile(self, oldname, newname):
-
-        # Make sure the disk is mounted first!
-        if not self.isMounted():
-            raise SlitherIOError("NotMounted", "No disk mounted!")
-
-        # See if the new file exists already.
-        if self._seek_file(newname):
-            raise SlitherIOError("FileExists", "That file already exists!")
-
-        # Seek the file entry.
-        if not self._seek_file(oldname):
-            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
-
-        # Write the new file name.
-        self.f.write(self._to_sfn_b(newname))
-
-        print("Successfully renamed the file!")
-
-        return True
-
-    # Deletes a file if it exists.
-    def deleteFile(self, file):
-
-        # Make sure the disk is mounted first!
-        if not self.isMounted():
-            raise SlitherIOError("NotMounted", "No disk mounted!")
-
-        # Seek the file entry.
-        if not self._seek_file(file):
-            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
-
-        # Read the file entry.
-        fn = self.f.read(32)
-
-        # Save the start of the cluster chain. We need to clear that out too!
-        cluster = int.from_bytes(fn[26:28], "little")
-
-        # Mark the entry as deleted and clear it out.
-        self.f.seek(-32, 1)
-        self.f.write(b'\xE5' + b'\x00'*31)
-
-        while cluster and (cluster < 0xFF0):
-
-            # Calculate the location of the next cluster.
-            fat_offset = int(cluster * 1.5)
-
-            # Check if the current cluster is even or odd.
-            even = cluster & 1
-
-            # Load the next cluster.
-            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-            cluster = int.from_bytes(self.f.read(2), "little")
-            self.f.seek(-2, 1)
-
-            # Adjust the 12-bit cluster appropriately.
-            if even:
-                self.f.write((cluster & 0xF).to_bytes(2, "little"))
-                cluster >>= 4
-            else:
-                self.f.write((cluster & 0xF000).to_bytes(2, "little"))
-                cluster &= 0xFFF
-
-        return True
-
-
-    # Change to writeFile.
-    def addFile(self, file, contents):
         # Make sure the disk is mounted first!
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
         # If the file exists, delete it because we're overwriting it.
-        if self._seek_file(file):
+        if self.fileExists(file):
             self.deleteFile(file)
+
+        elif self.doesExist(file):
+            raise SlitherIOError("NotFile", "Can't write to a nonfile!")
 
         # Seek the file entry.
         if not self._seek_free(file):
@@ -677,12 +666,12 @@ class FAT12:
         self.f.write(b'\x00') # Attributes.
         self.f.write(b'\x00') # Windows NT Flag
         self.f.write(b'\x00') # Creation time in tenths of a second.
-        self.f.write(self._get_time()) #Creation time
-        self.f.write(self._get_date()) # Creation date
-        self.f.write(self._get_date()) # Last Access Date.
+        self.f.write(self.getTime()) #Creation time
+        self.f.write(self.getDate()) # Creation date
+        self.f.write(self.getDate()) # Last Access Date.
         self.f.write(b'\x00\x00') # Higher 16-bit cluster.
-        self.f.write(self._get_time()) # Last modified time
-        self.f.write(self._get_date()) # Last modified date.
+        self.f.write(self.getTime()) # Last modified time
+        self.f.write(self.getDate()) # Last modified date.
         self.f.write(b'\x00\x00') # Lower 16-bit cluster.
         self.f.write(file_size.to_bytes(4, "little")) # Size of file in bytes.
 
@@ -772,6 +761,63 @@ class FAT12:
                 last_cluster = c
 
         return True
+
+    # Appends a file.
+    # TODO
+    def appendFile(self, file):
+        pass
+
+
+    # Rename a file.
+    def renameFile(self, oldname, newname):
+
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
+
+        # See if the new file exists already.
+        if self._seek_file(newname):
+            raise SlitherIOError("FileExists", "That file already exists!")
+
+        # Seek the file entry.
+        if not self._seek_file(oldname):
+            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
+
+        # Write the new file name.
+        self.f.write(self._to_sfn_b(newname))
+
+        print("Successfully renamed the file!")
+
+        return True
+
+    # Deletes a file if it exists.
+    def deleteFile(self, file):
+
+        # Make sure the disk is mounted first!
+        if not self.isMounted():
+            raise SlitherIOError("NotMounted", "No disk mounted!")
+
+        # Seek the file entry.
+        if not self._seek_file(file):
+            raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
+
+        # Read the file entry.
+        fn = self.f.read(32)
+
+        # Save the start of the cluster chain. We need to clear that out too!
+        cluster = int.from_bytes(fn[26:28], "little")
+
+        # Mark the entry as deleted and clear it out.
+        self.f.seek(-32, 1)
+        self.f.write(b'\xE5' + b'\x00'*31)
+
+        self.deleteChain(cluster)
+
+        return True
+
+    # Change to writeFile.
+    def addFile(self, file, contents):
+        self.writeFile(file, contents)
 
     def addBootloader(self, file, contents):
         # Make sure the disk is mounted first!
