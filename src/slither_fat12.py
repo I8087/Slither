@@ -288,22 +288,7 @@ class FAT12:
 
         while cluster and (cluster < 0xFF0):
 
-            # Calculate the location of the next cluster.
-            fat_offset = int(cluster * 1.5)
-
-            # Check if the current cluster is even or odd.
-            even = cluster & 1
-
-            # Load the next cluster.
-            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-            cluster = int.from_bytes(self.f.read(2), "little")
-
-            # Adjust the 12-bit cluster appropriately.
-            if even:
-                cluster >>= 4
-            else:
-                cluster &= 0xFFF
-
+            cluster = self.nextChain(cluster)
             cc.append(cluster)
 
         return tuple(cc)
@@ -318,11 +303,8 @@ class FAT12:
 
         for i in cc:
 
-            # Load the sector.
-            self.f.seek(((i-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
-
             # Read cluster data.
-            contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+            contents += self.readCluster(i)
 
         return contents
 
@@ -363,6 +345,43 @@ class FAT12:
     # Creates a cluster chain.
     # TODO
     def makeChain(self, clusters):
+        pass
+
+    # Finds the next cluster in the chain.
+    def nextChain(self, cluster):
+
+        # Load the next cluster.
+        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+int(cluster*1.5))
+        next_cluster = int.from_bytes(self.f.read(2), "little")
+
+        # Adjust the 12-bit cluster appropriately.
+        if cluster & 1:
+            next_cluster >>= 4
+        else:
+            next_cluster &= 0xFFF
+
+        return next_cluster
+
+    # Seeks the location of the cluster.
+    def seekChain(self, cluster):
+        self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+int(cluster*1.5))
+
+    # Reads the sector(s) in that cluster.
+    def readCluster(self, cluster):
+        # Load the sector.
+        self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
+
+        # Read cluster data.
+        return self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
+
+
+    # Writes to the sector(s) in that cluster.
+    # TODO
+    def writeCluster(self, cluster):
+        pass
+
+    # Cleans and wipes the sector(s) in that cluster.
+    def wipeCluster(self, cluster):
         pass
 
     ############################
