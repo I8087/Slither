@@ -82,7 +82,7 @@ class FAT12:
         # Get a list of files in the directory.
         e = self.getDir()
         e_files = [i for i in e if e[i]["IS_FILE"]]
-        
+
         # Find the file!
         if file in e_files:
             self.f.seek(e[file]["LBA"])
@@ -298,10 +298,7 @@ class FAT12:
 
         contents = bytes()
 
-        # Get the cluster chain.
-        cc = self.getChain(cluster)
-
-        for i in cc:
+        for i in self.getChain(cluster):
 
             # Read cluster data.
             contents += self.readCluster(i)
@@ -310,12 +307,16 @@ class FAT12:
 
     # Adds cluster(s) to the cluster chain.
     # TODO
-    def growChain(self, clusters):
+    def growChain(self, cluster, clusters):
         pass
 
     # Removes cluster(s) from the cluster chain.
     # TODO
-    def shrinkChain(self, clusters):
+    def shrinkChain(self, cluster, clusters):
+        pass
+
+    # Grows or shrinks the cluster chain based on number of clusters needed.
+    def setChain(self, cluster, clusters):
         pass
 
     # Completely removes the cluster chain.
@@ -343,9 +344,54 @@ class FAT12:
                 cluster &= 0xFFF
 
     # Creates a cluster chain.
-    # TODO
     def makeChain(self, clusters):
-        pass
+
+        cluster = 0
+        cluster_chain = []
+
+        while clusters:
+
+            # Get the next cluster.
+            self.seekChain(cluster)
+            _cluster = int.from_bytes(self.f.read(2), "little")
+
+            # Adjust the 12-bit cluster appropriately.
+            if cluster & 1:
+                _cluster >>= 4
+            else:
+                _cluster &= 0xFFF
+
+
+            # If this cluster is free, add it to our list.
+            if not _cluster:
+                cluster_chain.append(cluster)
+                clusters -= 1
+
+            cluster += 1
+
+        last_cluster = 0
+
+        for cluster in cluster_chain+[0xFFF]:
+
+            if last_cluster:
+                # Load the last cluster.
+                self.seekChain(last_cluster)
+                c = int.from_bytes(self.f.read(2), "little")
+
+                # Add the current cluster in the old cluster's spot while preserving the 4 bit part of the neighboring cluster.
+                if last_cluster & 1:
+                    c = (cluster << 4) + (c & 0x000F)
+                else:
+                    c = cluster + (c & 0xF000)
+
+                # Write the current cluster in the old cluster's spot.
+                self.f.seek(-2, 1)
+                self.f.write(c.to_bytes(2, "little"))
+
+            last_cluster = cluster
+
+        return cluster_chain
+
 
     # Finds the next cluster in the chain.
     def nextChain(self, cluster):
@@ -371,18 +417,20 @@ class FAT12:
         # Load the sector.
         self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
 
-        # Read cluster data.
+        # Read the cluster data.
         return self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
 
-
     # Writes to the sector(s) in that cluster.
-    # TODO
-    def writeCluster(self, cluster):
-        pass
+    def writeCluster(self, cluster, content):
+        # Load the sector(s) in the cluster.
+        self.f.seek(((cluster-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
 
-    # Cleans and wipes the sector(s) in that cluster.
+        # Write the cluster data.
+        self.f.write(content[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
+
+    # Wipes the sector(s) in that cluster blank.
     def wipeCluster(self, cluster):
-        pass
+        self.writeCluster(cluster, b"\x00"*(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]))
 
     ############################
     # DIRECTORY FUNCTIONS
@@ -408,6 +456,75 @@ class FAT12:
             else:
                 self.path += "{}/".format(sd)
 
+    # Edits the values of an entry.
+    def editEntry(self, name, entry):
+
+        e = self.getDir()
+
+        # Make sure this entry exists.
+        if name not in e.keys():
+            raise SlitherIOError("InvalidEntry", "This entry name is not valid!")
+
+        # Get the entry to be edited.
+        new_entry = e[name]
+
+        # Use the original LBA incase the LBA is updated.
+        self.f.seek(new_entry["LBA"])
+
+        # Update the entry with the new data.
+        new_entry.update(entry)
+
+        # Update the entry.
+        self.f.write(bytes(new_entry["SHORT_NAME"], "ascii"))
+        self.f.write(bytes(new_entry["SHORT_EXT"], "ascii"))
+        self.f.write(new_entry["ATTRIBUTES"].to_bytes(1, "little"))
+        self.f.write(new_entry["RESERVED"].to_bytes(1, "little"))
+        self.f.write(new_entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
+        self.f.write(new_entry["CREATION_TIME"].to_bytes(2, "little"))
+        self.f.write(new_entry["CREATION_DATE"].to_bytes(2, "little"))
+        self.f.write(new_entry["ACCESS_DATE"].to_bytes(2, "little"))
+        self.f.write(new_entry["HIGHER_CLUSTER"].to_bytes(2, "little"))
+        self.f.write(new_entry["MODIFIED_TIME"].to_bytes(2, "little"))
+        self.f.write(new_entry["MODIFIED_DATE"].to_bytes(2, "little"))
+        self.f.write(new_entry["LOWER_CLUSTER"].to_bytes(2, "little"))
+        self.f.write(new_entry["SIZE"].to_bytes(4, "little"))
+
+        return True
+
+    # Creates a new entry.
+    def newEntry(self, name, entry):
+
+        e = self.getDir()
+
+        # Make sure this entry exists.
+        if name in e.keys():
+            raise SlitherIOError("EntryExists", "This entry already exists!")
+
+        # Find a free entry.
+        self.findFreeEntry()
+
+        # Update the entry.
+        self.f.write(bytes(entry["SHORT_NAME"], "ascii"))
+        self.f.write(bytes(entry["SHORT_EXT"], "ascii"))
+        self.f.write(entry["ATTRIBUTES"].to_bytes(1, "little"))
+        self.f.write(entry["RESERVED"].to_bytes(1, "little"))
+        self.f.write(entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
+        self.f.write(entry["CREATION_TIME"].to_bytes(2, "little"))
+        self.f.write(entry["CREATION_DATE"].to_bytes(2, "little"))
+        self.f.write(entry["ACCESS_DATE"].to_bytes(2, "little"))
+        self.f.write(entry["HIGHER_CLUSTER"].to_bytes(2, "little"))
+        self.f.write(entry["MODIFIED_TIME"].to_bytes(2, "little"))
+        self.f.write(entry["MODIFIED_DATE"].to_bytes(2, "little"))
+        self.f.write(entry["LOWER_CLUSTER"].to_bytes(2, "little"))
+        self.f.write(entry["SIZE"].to_bytes(4, "little"))
+
+        return True
+
+    # Frees up an entry.
+    # TODO
+    def freeEntry(self, entry):
+        pass
+
     # Finds a free entry and moves the file pointer there.
     def findFreeEntry(self):
 
@@ -431,7 +548,7 @@ class FAT12:
         else:
 
             cluster = self.dir_cluster
-            
+
             while cluster and (cluster < 0xFF0):
 
                 # Load the sector.
@@ -474,7 +591,7 @@ class FAT12:
         contents = bytes()
 
         sector_offsets = []
-        
+
         # We're at the root directory.
         if not self.dir_cluster:
 
@@ -491,7 +608,7 @@ class FAT12:
         else:
 
             cluster = self.dir_cluster
-            
+
             while cluster and (cluster < 0xFF0):
 
                 # Load the sector.
@@ -671,28 +788,7 @@ class FAT12:
         elif self.doesExist(file):
             raise SlitherIOError("NotFile", "Can't write to a nonfile!")
 
-        # Seek the file entry.
-        if not self._seek_free(file):
-            raise SlitherIOError("NoFreeEntries", "There are no more free entries in the root directory!")
-
         file_size = len(contents)
-
-        ent_loc = self.f.tell()
-
-        # Write the file name.
-        self.f.write(bytes(file.split(".")[0][:8].ljust(8).upper(), "ascii"))
-        self.f.write(bytes(file.split(".")[1][:3].ljust(3).upper(), "ascii"))
-        self.f.write(b'\x00') # Attributes.
-        self.f.write(b'\x00') # Windows NT Flag
-        self.f.write(b'\x00') # Creation time in tenths of a second.
-        self.f.write(self.getTime()) #Creation time
-        self.f.write(self.getDate()) # Creation date
-        self.f.write(self.getDate()) # Last Access Date.
-        self.f.write(b'\x00\x00') # Higher 16-bit cluster.
-        self.f.write(self.getTime()) # Last modified time
-        self.f.write(self.getDate()) # Last modified date.
-        self.f.write(b'\x00\x00') # Lower 16-bit cluster.
-        self.f.write(file_size.to_bytes(4, "little")) # Size of file in bytes.
 
         # Find the number of clusters needed.
         sectors = file_size // self.attr["Bytes_Per_Sector"]
@@ -702,82 +798,39 @@ class FAT12:
             contents += b'\x00' * (self.attr["Bytes_Per_Sector"] - (file_size % self.attr["Bytes_Per_Sector"]))
             sectors += 1
 
-        cluster = 0
-        cluster_chain = []
+        # Make a cluster chain.
+        cluster_chain = self.makeChain(sectors)
 
-        while sectors:
+        # Write the data to the disk.
+        for cluster in cluster_chain:
+            self.writeCluster(cluster, contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
+            contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
 
-            # Calculate the location of the next cluster.
-            fat_offset = int(cluster * 1.5)
+        # Split the file name.
+        if "." in file:
+            file_name, file_ext = file.split(".")
+        else:
+            file_name = file
+            file_ext = ""
 
-            # Check if the current cluster is odd.
-            odd = cluster % 1
+        # Update the entry.
+        entry = {}
+        entry["SHORT_NAME"] = file_name[:8].ljust(8).upper()
+        entry["SHORT_EXT"] = file_ext[:3].ljust(3).upper()
+        entry["ATTRIBUTES"] = 0
+        entry["RESERVED"] = 0
+        entry["CREATION_TENTH_SECOND"] = 0
+        entry["CREATION_TIME"] = int.from_bytes(self.getTime(), "little")
+        entry["CREATION_DATE"] = int.from_bytes(self.getDate(), "little")
+        entry["ACCESS_DATE"] = int.from_bytes(self.getDate(), "little")
+        entry["HIGHER_CLUSTER"] = 0
+        entry["MODIFIED_TIME"] = int.from_bytes(self.getTime(), "little")
+        entry["MODIFIED_DATE"] = int.from_bytes(self.getDate(), "little")
+        entry["LOWER_CLUSTER"] = cluster_chain[0]
+        entry["SIZE"] = file_size
 
-            # Get the next cluster.
-            self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-            _cluster = int.from_bytes(self.f.read(2), "little")
-
-            # Adjust the 12-bit cluster appropriately.
-            if odd:
-                _cluster >>= 4
-            else:
-                _cluster &= 0xFFF
-
-
-            # If this cluster is free, add it to our list.
-            if not _cluster:
-                cluster_chain.append(cluster)
-                sectors -= 1
-
-            cluster += 1
-
-        # Add an end of cluster.
-        cluster_chain.append(0xFFF)
-        last_cluster = 0
-
-        for c in cluster_chain:
-
-
-            # Only write if we have something left to write.
-            if c != 0xFFF:
-
-                # Load the cluster's sector(s).
-                self.f.seek(((c-2) * self.attr["Sectors_Per_Cluster"] + self.getFirstDataSector()) * self.attr["Bytes_Per_Sector"])
-
-                # Write to the cluster's sector(s).
-                self.f.write(contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
-                contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
-
-
-            if last_cluster:
-
-                # Calculate the location of the old cluster for the next cluster.
-                fat_offset = int(last_cluster * 1.5)
-
-                # Check if the last cluster is odd.
-                odd = last_cluster & 1
-
-                # Load the old cluster.
-                self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"]+fat_offset)
-                l = int.from_bytes(self.f.read(2), "little")
-
-                # Add the current cluster in the old cluster's spot while preserving the 4 bit part of the neighboring cluster.
-                if odd:
-                    l = (c << 4) + (l & 0x000F)
-                else:
-                    l = c + (l & 0xF000)
-
-                # Write the current cluster in the old cluster's spot.
-                self.f.seek(-2, 1)
-                self.f.write(l.to_bytes(2, "little"))
-
-                last_cluster = c
-
-            else:
-                # Write the first cluster in the directory entry so we know where to start looking.
-                self.f.seek(ent_loc+26)
-                self.f.write(c.to_bytes(2, "little"))
-                last_cluster = c
+        # Create the new entry within the directory.
+        self.newEntry(file, entry)
 
         return True
 
