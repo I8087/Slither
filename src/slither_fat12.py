@@ -95,14 +95,6 @@ class FAT12:
     def _seek_free(self, file):
         return self.findFreeEntry()
 
-    # Converts a filename into a FAT short file name string.
-    def _to_sfn(self, file):
-        return file.split(".")[0][:8].ljust(8).upper() + file.split(".")[1][:3].ljust(3).upper()
-
-    # Converts a filename into a FAT short file name byte array.
-    def _to_sfn_b(self, file):
-        return bytes(self._to_sfn(file), "ascii")
-
     #######################
     # MAIN FUNCTIONS
     #######################
@@ -228,6 +220,92 @@ class FAT12:
         # FAT ID
         self.f.seek(self.attr["Reserved_Sectors"]*self.attr["Bytes_Per_Sector"])
         self.f.write(b"\xF0\xFF\xFF")
+
+    ############################
+    # ENTRY NAME FUNCTIONS
+    ############################
+
+    # Takes a file name and returns the appropriate type.
+    def toFN(self, name):
+        if self.isSFN(name):
+            return self.toSFN(name)
+        else:
+            return self.toLFN(name)
+
+    # Takes a file name and returns the appropriate type in bytes.
+    def toFNb(self, name):
+        if self.isSFN(name):
+            return self.toSFNb(name)
+        else:
+            return self.toLFNb(name)
+
+    # Checks to see if this is a valid short name.
+    def isSFN(self, name):
+
+        # Make sure there's an actual name.
+        if len(name) == 0:
+            return False
+
+        # Split the file name into a name and extension.
+        if "." in name:
+            s_name, s_ext = name.split(".")
+        else:
+            s_name = name
+            s_ext = ""
+
+        # Make sure the name and extension are within size limits.
+        if len(s_name) > 8 or len(s_ext) > 3:
+            return False
+
+        # Make sure the name and extension have legal characters.
+        for i in s_name+s_ext:
+            if ord(i) in (0x20, 0x21, 0x2D, 0x40, 0x7B, 0x7D, 0x7E) or 0x23 <= ord(i) <= 0x29 or 0x30 <= ord(i) <= 0x39 or 0x41 <= ord(i) <= 0x5A or 0x5E <= ord(i) <= 0x60 or 0x80 <= ord(i) <= 0xFF:
+                continue
+
+            return False
+
+        return True
+
+    # Checks to see if this is a valid long name.
+    # TODO
+    def isLFN(self, name):
+        pass
+
+
+    # Turns file name into a SFN entry.
+    def toSFN(self, name):
+        if self.isSFN(name):
+            return name.split(".")[0][:8].ljust(8) + name.split(".")[1][:3].ljust(3)
+        else:
+            return False
+
+    # Return a SFN in bytes.
+    def toSFNb(self, name):
+        r = self.toSFN(name)
+        if r:
+            # Split the file name into a name and extension.
+            if "." in name:
+                s_name, s_ext = name.split(".")
+            else:
+                s_name = name
+                s_ext = ""
+            return bytes(s_name.ljust(8)+s_ext.ljust(3), "cp437")
+
+        return False
+
+    # Turns file name into a tuple of each LFN entry.
+    def toLFN(self, name):
+        return tuple([name[i:i+13] for i in range(0, len(name), 13)][::-1])
+
+    # Return a SFN in bytes.
+    def toLFNb(self, name):
+        r = self.toLFN(name+"\uFFFF")
+        if r:
+            return tuple([bytes(r[i].ljust(13, "\u0000") , "utf-16-le") for i in range(len(r))])
+        else:
+            return False
+
+        return r
 
     ############################
     # ENTRY EXISTS FUNCTIONS
@@ -482,7 +560,7 @@ class FAT12:
         self.f.write(new_entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
         self.f.write(new_entry["CREATION_TIME"].to_bytes(2, "little"))
         self.f.write(new_entry["CREATION_DATE"].to_bytes(2, "little"))
-        self.f.write(new_entry["ACCESS_DATE"].to_bytes(2, "little"))
+        self.f.write(new_entry["ACCESSED_DATE"].to_bytes(2, "little"))
         self.f.write(new_entry["HIGHER_CLUSTER"].to_bytes(2, "little"))
         self.f.write(new_entry["MODIFIED_TIME"].to_bytes(2, "little"))
         self.f.write(new_entry["MODIFIED_DATE"].to_bytes(2, "little"))
@@ -511,7 +589,7 @@ class FAT12:
         self.f.write(entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
         self.f.write(entry["CREATION_TIME"].to_bytes(2, "little"))
         self.f.write(entry["CREATION_DATE"].to_bytes(2, "little"))
-        self.f.write(entry["ACCESS_DATE"].to_bytes(2, "little"))
+        self.f.write(entry["ACCESSED_DATE"].to_bytes(2, "little"))
         self.f.write(entry["HIGHER_CLUSTER"].to_bytes(2, "little"))
         self.f.write(entry["MODIFIED_TIME"].to_bytes(2, "little"))
         self.f.write(entry["MODIFIED_DATE"].to_bytes(2, "little"))
@@ -822,7 +900,7 @@ class FAT12:
         entry["CREATION_TENTH_SECOND"] = 0
         entry["CREATION_TIME"] = int.from_bytes(self.getTime(), "little")
         entry["CREATION_DATE"] = int.from_bytes(self.getDate(), "little")
-        entry["ACCESS_DATE"] = int.from_bytes(self.getDate(), "little")
+        entry["ACCESSED_DATE"] = int.from_bytes(self.getDate(), "little")
         entry["HIGHER_CLUSTER"] = 0
         entry["MODIFIED_TIME"] = int.from_bytes(self.getTime(), "little")
         entry["MODIFIED_DATE"] = int.from_bytes(self.getDate(), "little")
@@ -841,24 +919,35 @@ class FAT12:
 
 
     # Rename a file.
-    def renameFile(self, oldname, newname):
+    def renameFile(self, old_name, new_name):
 
         # Make sure the disk is mounted first!
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
-        # See if the new file exists already.
-        if self._seek_file(newname):
-            raise SlitherIOError("FileExists", "That file already exists!")
-
-        # Seek the file entry.
-        if not self._seek_file(oldname):
+        # Make sure the file exists.
+        if not self.fileExists(old_name):
             raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
 
-        # Write the new file name.
-        self.f.write(self._to_sfn_b(newname))
+        # Make sure the new file name isn't already taken!
+        if self.fileExists(new_name):
+            raise SlitherIOError("FileExists", "The new file name already exists!")
 
-        print("Successfully renamed the file!")
+        # Split the short file name.
+        if "." in new_name:
+            file_name, file_ext = new_name.split(".")
+        else:
+            file_name = new_name
+            file_ext = ""
+
+        # Update the entry.
+        entry = {
+            "SHORT_NAME": file_name[:8].ljust(8).upper(),
+            "SHORT_EXT": file_ext[:3].ljust(3).upper()
+            }
+
+        # Edit the directory entry.
+        self.editEntry(old_name, entry)
 
         return True
 
@@ -905,5 +994,6 @@ class FAT12:
         self.f.write(contents)
 
 if __name__ == "__main__":
+    a = FAT12()
     print("Not a standalone script!")
     exit(-1)
