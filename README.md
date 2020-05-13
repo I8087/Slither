@@ -5,6 +5,7 @@ Slither is a simple virtual floppy disk explorer that makes manipulating a virtu
 * Built as a console and gui for your preference.
 * File manipulation including renaming, deleting, pulling, and pushing files.
 * Directory manipulation currently includes reading. (Will include more features in the future.)
+* Supports long file names.
 
 ## Releases
 Releases are currently being built for Windows and Linux using [PyInstaller](https://github.com/pyinstaller/pyinstaller). You can find the latest releases **[here](https://github.com/I8087/Slither/releases)**.
