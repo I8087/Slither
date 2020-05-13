@@ -1,13 +1,18 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
 
-import os, sys, shutil
+import os, sys, shutil, platform
 import PyInstaller.__main__
 
 build_scripts = ("slither", "slither_gui")
 
-if sys.platform not in ("win32", "win64", "linux"):
-    print("Slither doesn't support building on this os!")
+# Make sure the platform is supported.
+if sys.platform == "win32":
+    plat = "win{}".format(platform.architecture()[0][:2])
+elif sys.platform == "linux":
+    plat = "linux{}".format(platform.architecture()[0][:2])
+else:
+    print("Slither doesn't support building on this OS!")
     exit(-1)
 
 # Build slither_cmd
@@ -25,7 +30,7 @@ PyInstaller.__main__.run(
      "--onefile",
      "--hidden-import=PIL._tkinter_finder",
      "-nslither_gui",
-     os.path.join(os.getcwd(), "src", "slither_gui.pyw")
+     os.path.join(os.getcwd(), "src", "slither_gui.py")
      ])
 
 # Clean up spec file.
@@ -63,13 +68,13 @@ for i in ("CHANGELOG.md", "LICENSE", "README.md"):
     shutil.copy2(os.path.join(os.getcwd(), i),
                  os.path.join(os.getcwd(), "dist", i))
 
-# Archive the programs.
-    if sys.platform[:3] == "win":
+    # Archive the programs.
+    if sys.platform == "win32":
         arch_format = "zip"
     else:
         arch_format = "gztar"
 
-shutil.make_archive(os.path.join(os.getcwd(), "build", "Slither-{}".format(sys.platform)), arch_format, "dist")
+shutil.make_archive(os.path.join(os.getcwd(), "build", "Slither-{}".format(plat)), arch_format, "dist")
 
 # Remove the dist directory.
 if os.path.exists("dist"):
