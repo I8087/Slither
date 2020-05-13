@@ -149,12 +149,12 @@ class Slither_CMD(Cmd):
             dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
             dis_files = [i for i in e if e[i]["IS_FILE"]]
 
-            for i in sorted(dis_dir):
+            for i in sorted(dis_dir, key=str.lower):
                 print("{:<14}                 {}   {}".format(i,
                                                               e[i]["MODIFIED_TIME_STR"],
                                                               e[i]["MODIFIED_DATE_STR"]))
 
-            for i in sorted(dis_files):
+            for i in sorted(dis_files, key=str.lower):
                 print("{:<14}   {:>5} BYTES   {}   {}".format(i,
                                                               e[i]["SIZE"],
                                                               e[i]["MODIFIED_TIME_STR"],

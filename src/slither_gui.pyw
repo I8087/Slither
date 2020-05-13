@@ -103,7 +103,7 @@ def refreshTree():
     dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
     dis_files = [i for i in e if e[i]["IS_FILE"]]
 
-    for i in sorted(dis_dir):
+    for i in sorted(dis_dir, key=str.lower):
 
         tree.insert("",
                     "end",
@@ -112,7 +112,7 @@ def refreshTree():
                     image=images["Folder"])
 
 
-    for i in sorted(dis_files):
+    for i in sorted(dis_files, key=str.lower):
 
         # Get appropriate size.
         b = e[i]["SIZE"]

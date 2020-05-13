@@ -85,15 +85,15 @@ class FAT12:
 
         # Find the file!
         if file in e_files:
-            self.f.seek(e[file]["LBA"])
+            self.f.seek(e[file]["SFN_LBA"])
             return True
         else:
             return False
 
     # Seeks a free entry.
     # Deprecated. Use findFreeEntry()
-    def _seek_free(self, file):
-        return self.findFreeEntry()
+    def _seek_free(self, file, n=1):
+        return self.findFreeEntry(n)
 
     #######################
     # MAIN FUNCTIONS
@@ -247,8 +247,11 @@ class FAT12:
             return False
 
         # Split the file name into a name and extension.
-        if "." in name:
-            s_name, s_ext = name.split(".")
+        dot = name.rfind(".")
+
+        if dot != -1:
+            s_name = name[:dot]
+            s_ext = name[dot+1:]
         else:
             s_name = name
             s_ext = ""
@@ -259,10 +262,8 @@ class FAT12:
 
         # Make sure the name and extension have legal characters.
         for i in s_name+s_ext:
-            if ord(i) in (0x20, 0x21, 0x2D, 0x40, 0x7B, 0x7D, 0x7E) or 0x23 <= ord(i) <= 0x29 or 0x30 <= ord(i) <= 0x39 or 0x41 <= ord(i) <= 0x5A or 0x5E <= ord(i) <= 0x60 or 0x80 <= ord(i) <= 0xFF:
-                continue
-
-            return False
+            if not self.legalSFNchar(i):
+                return False
 
         return True
 
@@ -306,6 +307,124 @@ class FAT12:
             return False
 
         return r
+
+    # Creates a new duplicated SFN.
+    def dupSFN(self, name):
+
+        # Make sure this is a valid SFN.
+        if not self.isSFN(name):
+            return False
+
+        # Get a list of SFN in the directory.
+        e = self.getDir()
+        e_names = tuple([e[i]["SHORT_FILE_NAME"] for i in e])
+
+        # Make sure this file does exist, otherwise just give back the orignal SFN!
+        if name not in e_names:
+            return name
+
+        # Split the file name into a name and extension.
+        if "." in name:
+            s_name, s_ext = name.split(".")
+        else:
+            s_name = name
+            s_ext = ""
+
+        for i in range(1000):
+            new_name = "{}~{}.{}".format(s_name[:7-len(str(i))], i, s_ext)
+            if new_name not in e_names:
+                return new_name
+
+
+    # Makes a SFN from a LFN.
+    def makeSFN(self, name):
+
+        # Lowercase letters aren't allowed in SFN.
+        name = name.upper()
+
+        # See if there's a file extension.
+        dot = name.rfind(".")
+
+        if dot != -1:
+            s_name = name[:dot]
+            s_ext = name[dot+1:]
+            dot = "."
+        else:
+            s_name = name
+            s_ext = ""
+            dot = ""
+
+        # New SFN holder.
+        new_name = ""
+        new_ext = ""
+
+        # Convert illegal characters in the file name.
+        for i in s_name:
+            if self.legalSFNchar(i):
+                new_name = new_name + i
+            else:
+                new_name = new_name + "~"
+
+        # Convert illegal characters in the file extension.
+        for i in s_ext:
+            if self.legalSFNchar(i):
+                new_ext = new_ext + i
+            else:
+                new_ext = new_ext + "~"
+
+        # Split file name holders.
+        f_name = ""
+        l_name = ""
+
+        if len(new_name) <= 8:
+            f_name = new_name
+        else:
+            f_name = new_name[:4]
+            l_name = new_name[-4:]
+
+        return "{}{}{}{}".format(f_name, l_name, dot, new_ext[:3])
+
+
+    # Creates a fake SFN for a LFN.
+    def fakeSFN(self, name):
+        return self.dupSFN(self.makeSFN(name))
+
+    # Returns True if the character is allowed in a SFN, otherwise it returns false.
+    def legalSFNchar(self, char):
+        if ord(char) in (0x20, 0x21, 0x2D, 0x40, 0x7B, 0x7D, 0x7E) or 0x23 <= ord(char) <= 0x29 or 0x30 <= ord(char) <= 0x39 or 0x41 <= ord(char) <= 0x5A or 0x5E <= ord(char) <= 0x60 or 0x80 <= ord(char) <= 0xFF:
+            return True
+        else:
+            return False
+
+    # Generate a checksum for a LFN from a SFN.
+    def gensumLFN(self, name):
+
+        # Create a new checksum to verify with the current checksum.
+        ns = 0
+
+        for i in name:
+            ns = (((ns & 1) << 7) + (ns >> 1) + ord(i)) & 0xFF
+
+        return ns
+
+    # Make sure the checksum for the LFN match the SFN.
+    def checksumLFN(self, name, cs):
+        return self.gensumLFN(name) == cs
+
+    # Splits a LFN into SFN entries.
+    def splitLFN(self, name):
+
+        # List of LFN parts.
+        LFNS = []
+
+        # Add a null character.
+        name += "\u0000"
+
+        while name:
+            LFNS.append(name[:13].ljust(13, "\uFFFF"))
+            name = name[13:]
+
+        return tuple(LFNS[::-1])
 
     ############################
     # ENTRY EXISTS FUNCTIONS
@@ -535,42 +654,24 @@ class FAT12:
                 self.path += "{}/".format(sd)
 
     # Edits the values of an entry.
-    def editEntry(self, name, entry):
+    def editEntry(self, name, entry, new_entry):
 
-        e = self.getDir()
-
-        # Make sure this entry exists.
-        if name not in e.keys():
-            raise SlitherIOError("InvalidEntry", "This entry name is not valid!")
-
-        # Get the entry to be edited.
-        new_entry = e[name]
-
-        # Use the original LBA incase the LBA is updated.
-        self.f.seek(new_entry["LBA"])
+        # Remove the old entry.
+        self.removeEntry(entry)
 
         # Update the entry with the new data.
-        new_entry.update(entry)
+        entry.update(new_entry)
 
-        # Update the entry.
-        self.f.write(bytes(new_entry["SHORT_NAME"], "ascii"))
-        self.f.write(bytes(new_entry["SHORT_EXT"], "ascii"))
-        self.f.write(new_entry["ATTRIBUTES"].to_bytes(1, "little"))
-        self.f.write(new_entry["RESERVED"].to_bytes(1, "little"))
-        self.f.write(new_entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
-        self.f.write(new_entry["CREATION_TIME"].to_bytes(2, "little"))
-        self.f.write(new_entry["CREATION_DATE"].to_bytes(2, "little"))
-        self.f.write(new_entry["ACCESSED_DATE"].to_bytes(2, "little"))
-        self.f.write(new_entry["HIGHER_CLUSTER"].to_bytes(2, "little"))
-        self.f.write(new_entry["MODIFIED_TIME"].to_bytes(2, "little"))
-        self.f.write(new_entry["MODIFIED_DATE"].to_bytes(2, "little"))
-        self.f.write(new_entry["LOWER_CLUSTER"].to_bytes(2, "little"))
-        self.f.write(new_entry["SIZE"].to_bytes(4, "little"))
+        # Create a new entry.
+        self.newEntry(entry["FILE_NAME"], entry)
 
         return True
 
     # Creates a new entry.
     def newEntry(self, name, entry):
+
+        # A tuple of LFN parts.
+        LFNS = ()
 
         e = self.getDir()
 
@@ -578,12 +679,51 @@ class FAT12:
         if name in e.keys():
             raise SlitherIOError("EntryExists", "This entry already exists!")
 
-        # Find a free entry.
-        self.findFreeEntry()
+        # Check to see if this is a LFN.
+        if not self.isSFN(name):
+            LFNS = self.splitLFN(name)
+            name = self.fakeSFN(name)
 
-        # Update the entry.
-        self.f.write(bytes(entry["SHORT_NAME"], "ascii"))
-        self.f.write(bytes(entry["SHORT_EXT"], "ascii"))
+        # Split the SFN.
+        if "." in name:
+            file_name, file_ext = name.split(".")
+        else:
+            file_name = name
+            file_ext = ""
+
+        # Generate a checksum.
+        cs = self.gensumLFN(file_name.ljust(8)+file_ext.ljust(3))
+
+
+        # Find enough free entries.
+        entries = self.findFreeEntry(len(LFNS)+1)
+
+        # Not enough free entries!
+        if not entries:
+            return False
+
+        self.f.seek(entries[0])
+
+        # Write each LFN entry.
+        for i in range(len(LFNS)):
+
+            # Is this the last LFN entry?
+            if len(LFNS)-i == len(LFNS):
+                self.f.write((len(LFNS)+0x40).to_bytes(1, "little"))
+            else:
+                self.f.write(len(LFNS).to_bytes(1, "little"))
+
+            self.f.write(bytes(LFNS[i][:5], "utf-16-le"))
+            self.f.write(self.attr_flags["LFN"].to_bytes(1, "little"))
+            self.f.write(bytes(1))
+            self.f.write(cs.to_bytes(1, "little"))
+            self.f.write(bytes(LFNS[i][5:11], "utf-16-le"))
+            self.f.write(bytes(2))
+            self.f.write(bytes(LFNS[i][11:13], "utf-16-le"))
+
+        # Update the SFN entry.
+        self.f.write(bytes(file_name.ljust(8), "ascii"))
+        self.f.write(bytes(file_ext.ljust(3), "ascii"))
         self.f.write(entry["ATTRIBUTES"].to_bytes(1, "little"))
         self.f.write(entry["RESERVED"].to_bytes(1, "little"))
         self.f.write(entry["CREATION_TENTH_SECOND"].to_bytes(1, "little"))
@@ -599,12 +739,23 @@ class FAT12:
         return True
 
     # Frees up an entry.
-    # TODO
-    def freeEntry(self, entry):
-        pass
+    def removeEntry(self, entry):
 
-    # Finds a free entry and moves the file pointer there.
-    def findFreeEntry(self):
+        entries = entry["LFN_LBA"]
+        entries.append(entry["SFN_LBA"])
+
+        # Remove each entry associated with the file.
+        for i in entries:
+            self.f.seek(i)
+            self.f.write(b'\xE5' + bytes(31))
+
+        return True
+
+    # Finds free entries and returns a list of LBAs.
+    def findFreeEntry(self, n=1):
+
+        # A chain of entries. Needed for LFNs.
+        entries = []
 
         # We're at the root directory.
         if not self.dir_cluster:
@@ -620,8 +771,13 @@ class FAT12:
 
                 # Check to see if this is a free entry.
                 if fn[0] in (0x00, 0xE5):
-                        self.f.seek(-32, 1)
-                        return True
+                    entries.append(self.f.tell()-32)
+
+                    # Return if we have enough entries.
+                    if len(entries) == n:
+                        return tuple(entries)
+                else:
+                    entries = []
 
         else:
 
@@ -639,8 +795,12 @@ class FAT12:
 
                     # Check to see if this is a free entry.
                     if fn[0] in (0x00, 0xE5):
-                        self.f.seek(-32, 1)
-                        return True
+                        entries.append(self.f.tell()-32)
+                        # Return if we have enough entries.
+                        if len(entries) == n:
+                            return tuple(entries)
+                    else:
+                        entries = []
 
                 # Read cluster data.
                 contents += self.f.read(self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
@@ -661,7 +821,8 @@ class FAT12:
                 else:
                     cluster &= 0xFFF
 
-        return False
+        # Return the chain of entries.
+        return tuple()
 
 
     # Reads a directory and returns its content.
@@ -719,7 +880,7 @@ class FAT12:
 
     # Reads the Entry table for the current directory
     # and returns a dictonary of entries.
-    def getDir(self, vFAT=False):
+    def getDir(self, vFAT=True):
 
         entries = {}
 
@@ -727,8 +888,8 @@ class FAT12:
 
         offset_count = 0
 
-        l = []
-        name = b""
+        # LFN holder
+        LFN = []
 
         # Start searching through the root directory.
         while dir_data:
@@ -747,20 +908,15 @@ class FAT12:
 
             # FIX!
             # Check to see if this is a vFAT entry.
-            elif vFAT and fn[11] & self.attr_flags["LFN"]:
-                for i in range(5):
-                    if fn[1+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
-                        name += fn[1+(i*2)].to_bytes(2, "little")
-                for i in range(6):
-                    if fn[0xE+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
-                        name += fn[0xE+(i*2)].to_bytes(2, "little")
-                for i in range(2):
-                    if fn[0x1C+(i*2)].to_bytes(1, "little") not in (b'\x00', b'\xFF'):
-                        name += fn[0x1C+(i*2)].to_bytes(2, "little")
-            elif name:
-                l.append((name.decode(encoding="utf-16"),))
-                #print(name.decode(encoding="utf-16"))
-                name = b""
+            elif vFAT and fn[11] == self.attr_flags["LFN"]:
+                name_part = fn[1:11] + fn[14:26] + fn[28:32]
+                name_part = name_part.decode("utf-16-le")
+
+                # If this is the end of the LFN, cut off the excess.
+                if "\u0000" in name_part:
+                    name_part = name_part.split("\u0000")[0]
+
+                LFN.append((int(fn[0]), int(fn[13]), name_part, sector_offsets[0]))
 
            # Otherwise this is a 8.3 entry.
             elif not (fn[11] & self.attr_flags["VOLUME_ID"] or fn[11] & self.attr_flags["LFN"]) :
@@ -811,6 +967,15 @@ class FAT12:
                 entry["SIZE"] = int.from_bytes(fn[28:32], "little")
                 entry["SIZE_ON_DISK"] = self.getChain(len(self.getChain(entry["CLUSTER"]))*self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"])
 
+                # Check for a LFN.
+                entry["LONG_FILE_NAME"] = ""
+
+                # Make sure the checksum matches.
+                LFN = [i for i in LFN if self.checksumLFN(entry["SHORT_NAME"].ljust(8)+entry["SHORT_EXT"].ljust(3), i[1])]
+
+                for i in LFN[::-1]:
+                    entry["LONG_FILE_NAME"] += i[2]
+
                 # Generate a name for the file/directory.
                 if entry["IS_DIRECTORY"] or not entry["SHORT_EXT"]:
                     entry["SHORT_FILE_NAME"] = entry["SHORT_NAME"]
@@ -818,10 +983,20 @@ class FAT12:
                     entry["SHORT_FILE_NAME"] = "{}.{}".format(entry["SHORT_NAME"], entry["SHORT_EXT"])
 
                 # Get the file entry's location in LBA.
-                entry["LBA"] = sector_offsets[0]
+                entry["SFN_LBA"] = sector_offsets[0]
+                entry["LFN_LBA"] = [i[3] for i in LFN]
+
+                # Set the file entry name.
+                if entry["LONG_FILE_NAME"]:
+                    entry["FILE_NAME"] = entry["LONG_FILE_NAME"]
+                else:
+                    entry["FILE_NAME"] = entry["SHORT_FILE_NAME"]
 
                 # Add the entry to the list of entries.
-                entries[entry["SHORT_FILE_NAME"]] = entry
+                entries[entry["FILE_NAME"]] = entry
+
+                # Clean up the LFN for the next entry.
+                LFN = []
 
             del sector_offsets[0]
 
@@ -884,17 +1059,9 @@ class FAT12:
             self.writeCluster(cluster, contents[:self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]])
             contents = contents[self.attr["Sectors_Per_Cluster"] * self.attr["Bytes_Per_Sector"]:]
 
-        # Split the file name.
-        if "." in file:
-            file_name, file_ext = file.split(".")
-        else:
-            file_name = file
-            file_ext = ""
-
         # Update the entry.
         entry = {}
-        entry["SHORT_NAME"] = file_name[:8].ljust(8).upper()
-        entry["SHORT_EXT"] = file_ext[:3].ljust(3).upper()
+        entry["FILE_NAME"] = file
         entry["ATTRIBUTES"] = 0
         entry["RESERVED"] = 0
         entry["CREATION_TENTH_SECOND"] = 0
@@ -925,6 +1092,9 @@ class FAT12:
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
+        # Read the current directory.
+        e = self.getDir()
+
         # Make sure the file exists.
         if not self.fileExists(old_name):
             raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
@@ -933,21 +1103,10 @@ class FAT12:
         if self.fileExists(new_name):
             raise SlitherIOError("FileExists", "The new file name already exists!")
 
-        # Split the short file name.
-        if "." in new_name:
-            file_name, file_ext = new_name.split(".")
-        else:
-            file_name = new_name
-            file_ext = ""
-
-        # Update the entry.
-        entry = {
-            "SHORT_NAME": file_name[:8].ljust(8).upper(),
-            "SHORT_EXT": file_ext[:3].ljust(3).upper()
-            }
+        
 
         # Edit the directory entry.
-        self.editEntry(old_name, entry)
+        self.editEntry(old_name, e[old_name], {"FILE_NAME": new_name})
 
         return True
 
@@ -958,21 +1117,18 @@ class FAT12:
         if not self.isMounted():
             raise SlitherIOError("NotMounted", "No disk mounted!")
 
-        # Seek the file entry.
-        if not self._seek_file(file):
+        # Read the current directory.
+        e = self.getDir()
+
+        # Make sure the file exists.
+        if file not in [i for i in e if e[i]["IS_FILE"]]:
             raise SlitherIOError("FileDoesNotExist", "The file doesn't exist!")
 
-        # Read the file entry.
-        fn = self.f.read(32)
+        # Remove the file entries associated with the file.
+        self.removeEntry(e[file])
 
-        # Save the start of the cluster chain. We need to clear that out too!
-        cluster = int.from_bytes(fn[26:28], "little")
-
-        # Mark the entry as deleted and clear it out.
-        self.f.seek(-32, 1)
-        self.f.write(b'\xE5' + b'\x00'*31)
-
-        self.deleteChain(cluster)
+        # Remove the cluster chain associated with the file.
+        self.deleteChain(e[file]["CLUSTER"])
 
         return True
 
@@ -995,5 +1151,9 @@ class FAT12:
 
 if __name__ == "__main__":
     a = FAT12()
+    a.mount("../mikeos.flp")
+    for i in a.getDir().keys():
+        print(i)
+    a.unmount()
     print("Not a standalone script!")
     exit(-1)
