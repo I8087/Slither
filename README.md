@@ -18,6 +18,8 @@ Contributing is welcomed and appreciated. Submitting any issues, errors, or even
 
 ## Requirements
 * [**Python**](https://www.python.org/downloads/)
+* [**PyInstaller**](https://github.com/pyinstaller/pyinstaller)
+* [**Pillow**](https://github.com/python-pillow/Pillow)
 
 ## Getting Started
 Here's an example of the prompt.
