@@ -116,8 +116,17 @@ class Slither_CMD(Cmd):
             return False
 
         try:
-            self.disk.addBootloader(arg[0])
+
+            # Read the contents of the bootloader.
+            f = open(arg[0], "rb")
+            cnt = f.read()
+            f.close()
+
+            self.disk.addBootloader(arg[0], cnt)
             print("Succesfully added the bootloader!")
+
+        except IOError:
+            print("Unable to read the bootloader!")
 
         except SlitherIOError as e:
             print(e.msg)
