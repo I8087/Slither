@@ -83,7 +83,8 @@ start:
     ; Convert Root Directory LBA to CHS.
     ; Root Directory = (Sectors_Per_FAT * FATs) + Reserved_Sectors
     xor dx, dx
-    movzx ax, [FATs]
+    xor ah, ah
+    mov al, [FATs]
     mul word [Sectors_Per_FAT]
     add ax, [Reserved_Sectors]
     call toCHS
@@ -219,7 +220,9 @@ get_cluster:
     ; Get the cluster offset so it can be read from the FAT.
     ; Cluster Offset = (Cluster-2) * Sectors_Per_Cluster.
     sub ax, 2
-    mul byte [Sectors_Per_Cluster]
+    xor dh, dh
+    mov dl, [Sectors_Per_Cluster]
+    mul dx
 
     ; Save the Cluster Offset.
     push ax
@@ -255,7 +258,7 @@ get_cluster:
     ; Restore Root Directory Start + Cluster Offset.
     pop dx
 
-    ; Root Directory Sectos + Root Directory Start + Cluster Offset
+    ; Root Directory Sectors + Root Directory Start + Cluster Offset
     add ax, dx
 
     ; Convert First Cluster Sector's LBA to CHS.
@@ -263,6 +266,9 @@ get_cluster:
 
 ; Load the Cluster's sector(s) into the kernel buffer.
 load_cluster:
+
+    ; Save the registers.
+    pusha
 
     ; Load the Cluster's sector(s) into the kernel buffer.
     stc
@@ -275,11 +281,15 @@ load_cluster:
     ; reset the disk. If that fails, throw an error.
     jnc increase_kernel_buffer
     call resetDisk
+    popa
     jnc load_cluster
     jmp disk_error
 
 ; Increase the kernel buffer after loading the Cluster's sectors.
 increase_kernel_buffer:
+
+    ; Restore the registers.
+    popa
 
     ; Increase the kernel buffer.
     ; kernel buffer += Sectors_Per_Cluster * Bytes_Per_Sector
@@ -306,6 +316,9 @@ next_cluster:
     ; Restore the cluster.
     pop ax
 
+    ; Save the cluster
+    push ax
+
     ; cluster offset = cluster * 1.5
     mov dx, ax
     shr dx, 1
@@ -317,29 +330,29 @@ next_cluster:
     ; Point to the next cluster in the FAT.
     add si, ax
 
-    ; Get the original cluster.
-    ; Cluster Offset = (cluster / 2)
-    sub ax, dx
-
     ; Get our next cluster from the FAT.
-    mov dx, [si]
+    mov ax, [si]
+
+    ; Get the original cluster.
+    pop dx
 
     ; Check to see if the original cluster was odd or even.
-    and ax, 1
+    and dx, 1
     jz even_cluster
 
 ; The original cluster was odd so we need to remove the lowest nibble.
 odd_cluster:
-    shr dx, 4
+
+    shr ax, 4
     jmp check_cluster
 
 ; The original cluster was even so we need to remove the highest nibble.
 even_cluster:
-    and dx, 0x0FFF
+
+    and ax, 0x0FFF
 
 ; Check to see if the cluster chain still needs to continue.
 check_cluster:
-    mov ax, dx
 
     ; Check to see if this cluster is bad.
     cmp ax, 0x0FF7
@@ -352,16 +365,28 @@ check_cluster:
 ; Setup the segments and jump to the where the kernel was loaded.
 goto_kernel:
 
+    ; Save the location of the kernel.
+    push word [kernel_segment]
+    push word [kernel_offset]
+
+    mov dl, [Drive_Number]
+
     ; Setup the segments for the kernel.
     mov ax, [kernel_segment]
     mov ds, ax
     mov es, ax
     mov gs, ax
-    mov ax, [kernel_offset]
+    mov fs, ax
+
+    ; Clear out the registers.
+    xor ax, ax
+    xor bx, bx
+    xor cx, cx
+    xor dh, dh
+    mov si, ax
+    mov di, ax
 
     ; Far jump to the location of the kernel to properly setup the code segment.
-    push ds
-    push ax
     retf
 
     ; If the kernel returns to the bootloader, it will go right into stop.
@@ -369,7 +394,7 @@ goto_kernel:
 ; Hangs the proccesor indefinetely.
 stop:
 
-    ; Disable interrupt and halt the processor.
+    ; Disable interrupts and halt the processor.
     cli
     hlt
 
@@ -436,7 +461,6 @@ toCHS:
 
     ; Save the LBA for later use.
     push ax
-    push ax
 
     ; Find the Sector Number.
     ; Sector Number = (LBA % Sectors_Per_Track) + 1
@@ -447,37 +471,16 @@ toCHS:
     ; Move the Sector Number to the appropriate return register.
     mov cl, dl
 
-    ; Find the Cylinder Number.
-    ; Cylinder Number = LBA / (Sides * Sectors_Per_Track)
-    mov ax, [Sectors_Per_Track]
-    mul word [Sides]
-    mov bx, ax
-
-    ; Get the LBA and divide.
-    pop ax
-    xor dx, dx
-    div bx
-
-    ; Move the Cylinder Number to the appropriate return register.
-    mov ch, al
-
-    ; Find the Head Number.
-    ; Head Number = (LBA / Sectors_Per_Track) % Sides
-    pop ax
-    xor dx, dx
-    div word [Sectors_Per_Track]
-
-    ; Now divide by Sides and get the remainder.
+    ; Find the Cylinder Number and Head Number.
+    ; Cylinder Number = (LBA / Sector_Per_Tracks) / Sides
+    ; Head Number = (LBA / Sector_Per_Tracks) % Sides
     xor dx, dx
     div word [Sides]
-
-    ; Move the Head Number to the appropriate return register.
+    mov ch, al
     shl dx, 8
 
-    ; Restore the caller's BX register.
+    pop ax
     pop bx
-
-    ; Return to the caller.
     ret
 
 ; Make the bootloader the size of one sector by padding the remaining space
