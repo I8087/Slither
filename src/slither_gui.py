@@ -17,225 +17,236 @@ All rights reserved.
 Icons generated with Feather. https://feathericons.com/
 Copyright (c) 2013-2017, Cole Bemis"""
 
+class SlitherGUI(Frame):
+    def __init__(self, parent, *args, **kwargs):
+        self.parent = parent
+        self.parent.title("Slither - []")
+        self.checkDPI()
+        Frame.__init__(self, parent, *args, **kwargs)
+        self.addMenubar()
+        self.addTree()
 
-def onDoubleClick(event):
-    curItem = tree.item(tree.focus())
+        # Icons for files and folders.
+        self.images = {"Folder": ImageTk.PhotoImage(SlitherIcons().getFolder()),
+                       "File": ImageTk.PhotoImage(SlitherIcons().getFile())}
 
-    e = slither_cmd.disk.getDir()
-    e_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+        # Let Slither know that the gui is running.
+        self.SLITHER_GUI = True
 
-    if curItem["text"] in e_dir:
-        slither_cmd.do_cd((curItem["text"],))
-        refreshTree()
+        self.slither_cmd = Slither_CMD("")
 
-# show the menu bar with a right click.
-def showMenu(event):
+    def checkDPI(self):
+        #Only run if on Windows.
+        if sys.platform[:3] == "win":
+            import ctypes
+            ctypes.windll.shcore.SetProcessDpiAwareness(1) # Fixes blurry font.
 
-    r = tree.identify_row(event.y)
-    if r:
-        tree.focus(r)
-        tree.selection_set(r)
+    def addMenubar(self):
+        # Create the menu bar.
+        self.menubar = Menu(self)
 
-    selectItem(event)
-    menubar.post(event.x_root, event.y_root)
+        # Create the file menu.
+        self.filemenu = Menu(self.menubar, tearoff=0)
+        self.filemenu.add_command(label="New", state=DISABLED)
+        self.filemenu.add_command(label="Mount", command=self.mountDisk)
+        self.filemenu.add_command(label="Unmount", command=self.unmountDisk, state=DISABLED)
 
-def selectItem(event):
-    curItem = tree.focus()
-    if curItem:
-        #editmenu.entryconfigure("Copy", state=NORMAL)
-        editmenu.entryconfigure("Rename", state=NORMAL)
-        editmenu.entryconfigure("Delete", state=NORMAL)
-        editmenu.entryconfigure("Pull File", state=NORMAL)
+        self.filemenu.add_separator()
 
-def deselectItem():
-    editmenu.entryconfigure("Copy", state=DISABLED)
-    editmenu.entryconfigure("Rename", state=DISABLED)
-    editmenu.entryconfigure("Delete", state=DISABLED)
-    editmenu.entryconfigure("Pull File", state=DISABLED)
+        self.filemenu.add_command(label="Exit", command=self.parent.quit)
 
-def deleteFile():
-    curItem = tree.item(tree.focus())
-    if messagebox.askquestion("Delete", "Are you sure you want to delete \'%s\'?" % curItem["text"], icon="warning") == "yes":
-        slither_cmd.do_del((curItem["text"],))
-        refreshTree()
+        self.menubar.add_cascade(label="File", menu=self.filemenu)
 
-def renameFile():
-    curItem = tree.item(tree.focus())
-    a = simpledialog.askstring("Rename", "Input the new file name:")
-    if a:
-        slither_cmd.do_ren((curItem["text"], a))
-        refreshTree()
+        # Create the disk menu.
+        self.diskmenu = Menu(self.menubar, tearoff=0)
 
-def pullFile():
-    curItem = tree.item(tree.focus())
-    #filename = filedialog.asksaveasfilename(initialdir = ".", title = "Save File")
-    slither_cmd.do_pull((curItem["text"],))
+        self.diskmenu.add_command(label="Info", state=DISABLED)
+        self.diskmenu.add_command(label="Space", state=DISABLED)
 
-def pushFile():
-    filename = filedialog.askopenfilename(initialdir = ".", title = "Select File")
-    slither_cmd.do_push((filename,))
-    refreshTree()
+        self.diskmenu.add_separator()
 
-def mountDisk():
-    filename = filedialog.askopenfilename(initialdir = ".", title = "Select Disk",filetypes = (("Virtual Floppy Disk", ("*.dmg", "*.flp", "*.vfd")), ("all files", "*.*")))
-    slither_cmd.do_mount((filename,))
+        self.diskmenu.add_command(label="Format", state=DISABLED)
 
-    if slither_cmd.disk.isMounted():
-        filemenu.entryconfigure("Mount", state=DISABLED)
-        filemenu.entryconfigure("Unmount", state=NORMAL)
-        editmenu.entryconfigure("Push File", state=NORMAL)
-        root.title("Slither - [%s]" % filename)
-        refreshTree()
+        self.menubar.add_cascade(label="Disk", menu=self.diskmenu)
 
-def unmountDisk():
-        slither_cmd.do_unmount(tuple())
-        filemenu.entryconfigure("Unmount", state = DISABLED)
-        filemenu.entryconfigure("Mount", state = NORMAL)
-        editmenu.entryconfigure("Push File", state=DISABLED)
-        deselectItem()
-        root.title("Slither - []")
-        tree.delete(*tree.get_children())
+        # Create the edit menu.
+        self.editmenu = Menu(self.menubar, tearoff=0)
+        self.editmenu.add_command(label="New File", state=DISABLED)
+        self.editmenu.add_command(label="New Directory", state=DISABLED)
 
-def refreshTree():
-    tree.delete(*tree.get_children())
+        self.editmenu.add_separator()
 
-    e = slither_cmd.disk.getDir()
-    dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
-    dis_files = [i for i in e if e[i]["IS_FILE"]]
+        self.editmenu.add_command(label="Push File", command=self.pushFile, state=DISABLED)
+        self.editmenu.add_command(label="Pull File", command=self.pullFile, state=DISABLED)
 
-    for i in sorted(dis_dir, key=str.lower):
+        self.editmenu.add_separator()
 
-        tree.insert("",
-                    "end",
-                    text=i,
-                    values=("", e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
-                    image=images["Folder"])
+        self.editmenu.add_command(label="Copy", state=DISABLED)
+        self.editmenu.add_command(label="Rename", command=self.renameFile, state=DISABLED)
+        self.editmenu.add_command(label="Delete", command=self.deleteFile, state=DISABLED)
 
+        self.menubar.add_cascade(label="Edit", menu=self.editmenu)
 
-    for i in sorted(dis_files, key=str.lower):
+        # Create the help menu.
+        self.helpmenu = Menu(self.menubar, tearoff=0)
 
-        # Get appropriate size.
-        b = e[i]["SIZE"]
-        pf = "B"
-        if b > 1024:
-            b = b // 1024
-            pf = "KiB"
+        self.helpmenu.add_command(label="About", command=lambda: messagebox.showinfo("About", aboutstr))
 
-        tree.insert("",
-                    "end",
-                    text=i,
-                    values=("{} {}".format(b, pf), e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
-                    image=images["File"])
+        self.menubar.add_cascade(label="Help", menu=self.helpmenu)
+
+        self.parent.config(menu=self.menubar)
+
+    def addTree(self):
+        # Create the tree view.
+        self.tree = ttk.Treeview(self.parent, columns=("size", "time", "date"))
+        self.tree.heading("#0", text="File")
+        self.tree.heading("size", text="Size", command=lambda: self.sortSize(False))
+        self.tree.heading("time", text="Modified Time")
+        self.tree.heading("date", text="Modified Date")
+
+        # Create a scrollbar.
+        sb = ttk.Scrollbar(self.parent, orient="vertical", command=self.tree.yview)
+        sb.pack(side="right", fill="y")
+        self.tree.configure(yscrollcommand=sb.set)
+
+        self.tree.bind('<ButtonRelease-1>', self.selectItem)
+        self.tree.bind("<Button-3>", self.showMenu)
+        self.tree.bind("<Double-1>", self.onDoubleClick)
+
+        # Run the gui.
+        self.tree.pack(expand=True, fill="both")
 
 
-def sortSize(reverse):
-    l = []
+    def onDoubleClick(self, event):
+        curItem = self.tree.item(self.tree.focus())
 
-    for i in tree.get_children(""):
-        s = tree.set(i, "size").split()
-        s[0] = int(s[0])
+        e = self.slither_cmd.disk.getDir()
+        e_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
 
-        if s[1] == "KiB":
-            s[0] *= 1024
+        if curItem["text"] in e_dir:
+            self.slither_cmd.do_cd((curItem["text"],))
+            self.refreshTree()
 
-        l.append((s[0], i))
-        
-    l.sort(reverse=reverse)
+    # show the menu bar with a right click.
+    def showMenu(self, event):
 
-    for index, (val, i) in enumerate(l):
-        tree.move(i, "", index)
+        r = self.tree.identify_row(event.y)
+        if r:
+            self.tree.focus(r)
+            self.tree.selection_set(r)
 
-    # reverse sort next time
-    tree.heading("size", text="Size", command=lambda: sortSize(not reverse))
+        self.selectItem(event)
+        self.menubar.post(event.x_root, event.y_root)
 
-# Only run if we're on Windows.
-if sys.platform == "win32":
-    import ctypes
-    ctypes.windll.shcore.SetProcessDpiAwareness(1) # Fixes blurry font.
+    def selectItem(self, event):
+        curItem = self.tree.focus()
+        if curItem:
+            #self.editmenu.entryconfigure("Copy", state=NORMAL)
+            self.editmenu.entryconfigure("Rename", state=NORMAL)
+            self.editmenu.entryconfigure("Delete", state=NORMAL)
+            self.editmenu.entryconfigure("Pull File", state=NORMAL)
 
-# Let Slither know that the gui is running.
-SLITHER_GUI = True
+    def deselectItem(self):
+        self.editmenu.entryconfigure("Copy", state=DISABLED)
+        self.editmenu.entryconfigure("Rename", state=DISABLED)
+        self.editmenu.entryconfigure("Delete", state=DISABLED)
+        self.editmenu.entryconfigure("Pull File", state=DISABLED)
 
-slither_cmd = Slither_CMD("")
+    def deleteFile(self):
+        curItem = self.tree.item(self.tree.focus())
+        if messagebox.askquestion("Delete", "Are you sure you want to delete \'%s\'?" % curItem["text"], icon="warning") == "yes":
+            self.slither_cmd.do_del((curItem["text"],))
+            self.refreshTree()
 
-# Create the base for our gui.
-root = Tk()
-root.title("Slither - []")
+    def renameFile(self):
+        curItem = self.tree.item(self.tree.focus())
+        a = simpledialog.askstring("Rename", "Input the new file name:")
+        if a:
+            self.slither_cmd.do_ren((curItem["text"], a))
+            self.refreshTree()
 
-# Create the menu bar.
-menubar = Menu(root)
+    def pullFile(self):
+        curItem = self.tree.item(self.tree.focus())
+        #filename = filedialog.asksaveasfilename(initialdir = ".", title = "Save File")
+        self.slither_cmd.do_pull((curItem["text"],))
 
-# Create the file menu.
-filemenu = Menu(menubar, tearoff=0)
-filemenu.add_command(label="New", state=DISABLED)
-filemenu.add_command(label="Mount", command=mountDisk)
-filemenu.add_command(label="Unmount", command=unmountDisk, state=DISABLED)
+    def pushFile(self):
+        filename = filedialog.askopenfilename(initialdir = ".", title = "Select File")
+        self.slither_cmd.do_push((filename,))
+        self.refreshTree()
 
-filemenu.add_separator()
+    def mountDisk(self):
+        filename = filedialog.askopenfilename(initialdir = ".", title = "Select Disk",filetypes = (("Virtual Floppy Disk", ("*.dmg", "*.flp", "*.vfd")), ("all files", "*.*")))
+        self.slither_cmd.do_mount((filename,))
 
-filemenu.add_command(label="Exit", command=root.quit)
+        if self.slither_cmd.disk.isMounted():
+            self.filemenu.entryconfigure("Mount", state=DISABLED)
+            self.filemenu.entryconfigure("Unmount", state=NORMAL)
+            self.editmenu.entryconfigure("Push File", state=NORMAL)
+            self.parent.title("Slither - [%s]" % filename)
+            self.refreshTree()
 
-menubar.add_cascade(label="File", menu=filemenu)
+    def unmountDisk(self):
+            self.slither_cmd.do_unmount(tuple())
+            self.filemenu.entryconfigure("Unmount", state = DISABLED)
+            self.filemenu.entryconfigure("Mount", state = NORMAL)
+            self.editmenu.entryconfigure("Push File", state=DISABLED)
+            self.deselectItem()
+            self.parent.title("Slither - []")
+            self.tree.delete(*self.tree.get_children())
 
-# Create the disk menu.
-diskmenu = Menu(menubar, tearoff=0)
+    def refreshTree(self):
+        self.tree.delete(*self.tree.get_children())
 
-diskmenu.add_command(label="Info", state=DISABLED)
-diskmenu.add_command(label="Space", state=DISABLED)
+        e = self.slither_cmd.disk.getDir()
+        dis_dir = [i for i in e if e[i]["IS_DIRECTORY"]]
+        dis_files = [i for i in e if e[i]["IS_FILE"]]
 
-diskmenu.add_separator()
+        for i in sorted(dis_dir, key=str.lower):
 
-diskmenu.add_command(label="Format", state=DISABLED)
+            self.tree.insert("",
+                             "end",
+                             text=i,
+                             values=("", e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
+                             image=self.images["Folder"])
 
-menubar.add_cascade(label="Disk", menu=diskmenu)
 
-# Create the edit menu.
-editmenu = Menu(menubar, tearoff=0)
-editmenu.add_command(label="New File", state=DISABLED)
-editmenu.add_command(label="New Directory", state=DISABLED)
+        for i in sorted(dis_files, key=str.lower):
 
-editmenu.add_separator()
+            # Get appropriate size.
+            b = e[i]["SIZE"]
+            pf = "B"
+            if b > 1024:
+                b = b // 1024
+                pf = "KiB"
 
-editmenu.add_command(label="Push File", command=pushFile, state=DISABLED)
-editmenu.add_command(label="Pull File", command=pullFile, state=DISABLED)
+            self.tree.insert("",
+                             "end",
+                             text=i,
+                             values=("{} {}".format(b, pf), e[i]["MODIFIED_TIME_STR"], e[i]["MODIFIED_DATE_STR"]),
+                             image=self.images["File"])
 
-editmenu.add_separator()
+    def sortSize(self, reverse):
+        l = []
 
-editmenu.add_command(label="Copy", state=DISABLED)
-editmenu.add_command(label="Rename", command=renameFile, state=DISABLED)
-editmenu.add_command(label="Delete", command=deleteFile, state=DISABLED)
+        for i in self.tree.get_children(""):
+            s = self.tree.set(i, "size").split()
+            s[0] = int(s[0])
 
-menubar.add_cascade(label="Edit", menu=editmenu)
+            if s[1] == "KiB":
+                s[0] *= 1024
 
-# Create the help menu.
-helpmenu = Menu(menubar, tearoff=0)
+            l.append((s[0], i))
+            
+        l.sort(reverse=reverse)
 
-helpmenu.add_command(label="About", command=lambda: messagebox.showinfo("About", aboutstr))
+        for index, (val, i) in enumerate(l):
+            self.tree.move(i, "", index)
 
-menubar.add_cascade(label="Help", menu=helpmenu)
+        # reverse sort next time
+        self.tree.heading("size", text="Size", command=lambda: self.sortSize(not reverse))
 
-# Create the tree view.
-tree = ttk.Treeview(root, columns=("size", "time", "date"))
-tree.heading("#0", text="File")
-tree.heading("size", text="Size", command=lambda: sortSize(False))
-tree.heading("time", text="Modified Time")
-tree.heading("date", text="Modified Date")
-
-# Create a scrollbar.
-sb = ttk.Scrollbar(root, orient="vertical", command=tree.yview)
-sb.pack(side="right", fill="y")
-tree.configure(yscrollcommand=sb.set)
-
-tree.bind('<ButtonRelease-1>', selectItem)
-tree.bind("<Button-3>", showMenu)
-tree.bind("<Double-1>", onDoubleClick)
-
-# Run the gui.
-tree.pack(expand=True, fill="both")
-
-# Icons for files and folders.
-images = {"Folder": ImageTk.PhotoImage(SlitherIcons().getFolder()),
-          "File": ImageTk.PhotoImage(SlitherIcons().getFile())}
-
-root.config(menu=menubar)
-root.mainloop()
+if __name__ == "__main__":
+    root = Tk()
+    SlitherGUI(root).pack(side="top", fill="both", expand=True)
+    root.mainloop()
