@@ -4,7 +4,7 @@
 ; Licensed under BSD 2-Clause License. (See LICENSE for more detail.)
 
 ; This is a simple FAT12 bootloader for 16-bit real mode kernel's. In theory,
-; this bootloader should be able dynamically load a kernel from any
+; this bootloader should be able to dynamically load a kernel from any
 ; FAT12 formatted disk, so long as the EPBP is properly setup. It can only load
 ; kernel's by their SFN in the root directory, although the bootloader can load
 ; files with sizes greater than 64 KiB.
